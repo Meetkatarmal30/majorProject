@@ -1,0 +1,21 @@
+# Ignore dataset directory since it is large (51 GB)
+data/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Virtual environment
+venv/
+.venv/
+
+# Outputs
+outputs/
+
+# Large local caches
+.s1_patch_cache.json
