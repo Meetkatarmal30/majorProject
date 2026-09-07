@@ -1,5 +1,6 @@
 {
     "status": "SUCCESS",
+    "split_file_used": "teammate_inputs/val_split.csv",
     "total_validation_samples": 4500,
     "embedding_shape": [
         4500,
@@ -7,10 +8,15 @@
     ],
     "embedding_dtype": "float32",
     "min": 0.0,
-    "max": 9.187227249145508,
-    "mean": 0.06989026814699173,
-    "std": 0.26676762104034424,
-    "runtime_seconds": 456.26998114585876,
+    "max": 9.772329330444336,
+    "mean": 0.06694290041923523,
+    "std": 0.2677769660949707,
+    "runtime_seconds": 305.27586245536804,
+    "throughput_samples_per_sec": 14.740765823429323,
+    "initial_ram_mb": 318.6484375,
+    "final_ram_mb": 1097.69921875,
     "device": "cpu",
-    "alignment_guarantee": "Row-for-row matched to baseline_val_patch_ids.txt"
+    "id_format": "s1_name (Sentinel-1 patch names, NOT S2 patch_id)",
+    "row_alignment": "100% exact match with val_split.csv['s1_name'] row-for-row",
+    "changed_positions_from_previous_baseline": 4500
 }
