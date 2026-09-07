@@ -1,0 +1,25 @@
+{
+    "status": "SUCCESS",
+    "train_samples": 21000,
+    "train_batches": 329,
+    "train_runtime_seconds": 718.6399338245392,
+    "train_samples_per_second": 29.22186621085726,
+    "val_samples": 4500,
+    "val_batches": 71,
+    "val_runtime_seconds": 156.10520839691162,
+    "val_samples_per_second": 28.82671274207804,
+    "sar_tensor_shape": [
+        2,
+        224,
+        224
+    ],
+    "label_tensor_shape": [
+        19
+    ],
+    "batch_size": 64,
+    "num_workers": 0,
+    "s2_available_locally": false,
+    "nan_inf_count": 0,
+    "initial_memory_mb": 253.13671875,
+    "final_memory_mb": 757.73046875
+}

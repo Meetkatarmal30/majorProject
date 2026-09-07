@@ -1,18 +1,16 @@
 """
-dataloader.py - PyTorch DataLoader Integration for BigEarthNet-S1.
+dataloader.py - PyTorch DataLoader Integration for BigEarthNet.
 
-This module provides the create_dataloaders() function to instantiate PyTorch
-DataLoaders for the train, validation, and test splits of BigEarthNet-S1.
-It automatically sets up shuffling, batching, GPU pinned memory (if CUDA is available),
-multiprocess workers, and integrates the custom BigEarthNetS1Dataset.
-
-Includes type hints, logging, proper exception handling, and a runnable self-test.
+This module provides:
+1. create_dataloaders(): Instantiates DataLoaders for single-modality BigEarthNet-S1.
+2. create_paired_dataloaders(): Instantiates paired train and validation DataLoaders
+   for the official multimodal pipeline (train_split.csv and val_split.csv).
 """
 
 import os
 import logging
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Tuple, Optional, Union
 
 import torch
 from torch.utils.data import DataLoader
@@ -24,6 +22,7 @@ if _parent_dir not in sys.path:
     sys.path.insert(0, _parent_dir)
 
 from config.settings import (
+    BASE_DIR,
     DATA_DIR,
     SPLITS_DIR,
     DEFAULT_BATCH_SIZE,
@@ -33,9 +32,13 @@ from config.settings import (
     IMAGE_SIZE,
     setup_logging,
 )
-from dataset.dataset import BigEarthNetS1Dataset
+from dataset.dataset import (
+    BigEarthNetS1Dataset,
+    PairedBigEarthNetDataset,
+    paired_collate_fn,
+)
 
-logger = setup_logging("S1DataLoader")
+logger = setup_logging("DataLoader")
 
 
 def create_dataloaders(
@@ -51,20 +54,6 @@ def create_dataloaders(
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Creates train, validation, and test PyTorch DataLoaders for BigEarthNet-S1.
-
-    Args:
-        data_dir: Root directory of the dataset.
-        splits_dir: Directory containing split list files (train.txt, val.txt, test.txt).
-        batch_size: Number of samples per batch.
-        num_workers: Number of subprocesses for data loading.
-        norm_mode: Normalization mode ('none', 'min-max', 'z-score').
-        preserve_resolution: If True, keeps original dimensions.
-        target_size: Target dimensions (H, W) if resizing.
-        pin_memory: If True, copies Tensors to CUDA pinned memory. If None, checks CUDA availability.
-        drop_last_train: If True, drops the last incomplete batch in the training set.
-
-    Returns:
-        Tuple[DataLoader, DataLoader, DataLoader]: Train, validation, and test DataLoaders.
     """
     data_dir_path = Path(data_dir)
     if not data_dir_path.exists():
@@ -76,54 +65,40 @@ def create_dataloaders(
     if num_workers < 0:
         raise ValueError(f"Number of workers cannot be negative. Got: {num_workers}")
 
-    # Automatically set pin_memory based on GPU availability if not explicitly specified
     if pin_memory is None:
         pin_memory = torch.cuda.is_available()
-        logger.info(f"Auto-configured pin_memory to {pin_memory} (CUDA available: {torch.cuda.is_available()})")
 
     logger.info("Initializing datasets for train, validation, and test splits...")
-    
-    try:
-        # Create Train Dataset
-        train_dataset = BigEarthNetS1Dataset(
-            data_dir=data_dir_path,
-            split="train",
-            splits_dir=splits_dir,
-            norm_mode=norm_mode,
-            target_size=target_size,
-            preserve_res=preserve_resolution,
-        )
-        
-        # Create Validation Dataset
-        val_dataset = BigEarthNetS1Dataset(
-            data_dir=data_dir_path,
-            split="validation",
-            splits_dir=splits_dir,
-            norm_mode=norm_mode,
-            target_size=target_size,
-            preserve_res=preserve_resolution,
-        )
-        
-        # Create Test Dataset
-        test_dataset = BigEarthNetS1Dataset(
-            data_dir=data_dir_path,
-            split="test",
-            splits_dir=splits_dir,
-            norm_mode=norm_mode,
-            target_size=target_size,
-            preserve_res=preserve_resolution,
-        )
-    except Exception as e:
-        logger.error(f"Failed to instantiate datasets: {e}")
-        raise
 
-    # Verify datasets are not empty
-    if len(train_dataset) == 0 or len(val_dataset) == 0 or len(test_dataset) == 0:
-        raise ValueError("One or more splits yielded an empty dataset. Check dataset paths and split lists.")
+    train_dataset = BigEarthNetS1Dataset(
+        data_dir=data_dir_path,
+        split="train",
+        splits_dir=splits_dir,
+        norm_mode=norm_mode,
+        target_size=target_size,
+        preserve_res=preserve_resolution,
+    )
+
+    val_dataset = BigEarthNetS1Dataset(
+        data_dir=data_dir_path,
+        split="validation",
+        splits_dir=splits_dir,
+        norm_mode=norm_mode,
+        target_size=target_size,
+        preserve_res=preserve_resolution,
+    )
+
+    test_dataset = BigEarthNetS1Dataset(
+        data_dir=data_dir_path,
+        split="test",
+        splits_dir=splits_dir,
+        norm_mode=norm_mode,
+        target_size=target_size,
+        preserve_res=preserve_resolution,
+    )
 
     logger.info("Creating PyTorch DataLoaders...")
 
-    # Train DataLoader: shuffles and drops last incomplete batch by default
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
@@ -133,7 +108,6 @@ def create_dataloaders(
         drop_last=drop_last_train,
     )
 
-    # Validation DataLoader: no shuffle, do not drop last
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
@@ -143,7 +117,6 @@ def create_dataloaders(
         drop_last=False,
     )
 
-    # Test DataLoader: no shuffle, do not drop last
     test_loader = DataLoader(
         test_dataset,
         batch_size=batch_size,
@@ -156,42 +129,88 @@ def create_dataloaders(
     return train_loader, val_loader, test_loader
 
 
+def create_paired_dataloaders(
+    train_csv: Union[str, Path] = BASE_DIR / "teammate_inputs" / "train_split.csv",
+    val_csv: Union[str, Path] = BASE_DIR / "teammate_inputs" / "val_split.csv",
+    s1_root: Union[str, Path] = DATA_DIR,
+    s2_root: Optional[Union[str, Path]] = None,
+    batch_size: int = DEFAULT_BATCH_SIZE,
+    num_workers: int = 0,
+    require_s2: bool = False,
+    drop_last_train: bool = False,
+    pin_memory: Optional[bool] = None,
+) -> Tuple[DataLoader, DataLoader]:
+    """
+    Creates paired PyTorch DataLoaders for official train (21,000) and validation (4,500) splits.
+
+    Args:
+        train_csv: Path to train_split.csv (21,000 samples).
+        val_csv: Path to val_split.csv (4,500 samples).
+        s1_root: Directory containing BigEarthNet-S1 patches.
+        s2_root: Optional directory containing BigEarthNet-S2 patches (configurable).
+        batch_size: Number of samples per batch (default 64).
+        num_workers: DataLoader subprocess count (default 0 for Windows stability).
+        require_s2: If True, requires valid S2 imagery on disk; if False, enables safe S1 verification.
+        drop_last_train: If False, preserves the last partial batch (yields all 329 train batches).
+        pin_memory: If True, pins memory for CUDA transfer.
+
+    Returns:
+        Tuple[DataLoader, DataLoader]: (train_loader, val_loader)
+    """
+    if pin_memory is None:
+        pin_memory = torch.cuda.is_available()
+
+    logger.info("Initializing PairedBigEarthNetDataset instances for train and validation...")
+    train_dataset = PairedBigEarthNetDataset(
+        csv_path=train_csv,
+        s1_root=s1_root,
+        s2_root=s2_root,
+        require_s2=require_s2,
+    )
+
+    val_dataset = PairedBigEarthNetDataset(
+        csv_path=val_csv,
+        s1_root=s1_root,
+        s2_root=s2_root,
+        require_s2=require_s2,
+    )
+
+    logger.info(
+        f"Creating paired DataLoaders (batch_size={batch_size}, num_workers={num_workers}, "
+        f"require_s2={require_s2})..."
+    )
+
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,  # Training: shuffle=True
+        num_workers=num_workers,
+        collate_fn=paired_collate_fn,
+        pin_memory=pin_memory,
+        drop_last=drop_last_train,
+    )
+
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,  # Validation: deterministic shuffle=False
+        num_workers=num_workers,
+        collate_fn=paired_collate_fn,
+        pin_memory=pin_memory,
+        drop_last=False,
+    )
+
+    return train_loader, val_loader
+
+
 if __name__ == "__main__":
-    # Self-contained integration demo
-    logger.info("Running DataLoader integration self-test...")
-    try:
-        # Create dataloaders using default batch size and 4 workers
-        train_loader, val_loader, test_loader = create_dataloaders(
-            batch_size=64,
-            num_workers=4,
-        )
-
-        print("\n========================================")
-        print("DataLoaders Successfully Created!")
-        print("========================================")
-        print(f"Train Samples:       {len(train_loader.dataset)}")
-        print(f"Validation Samples:  {len(val_loader.dataset)}")
-        print(f"Test Samples:        {len(test_loader.dataset)}")
-        print(f"Batch Size:          {train_loader.batch_size}")
-        print(f"Number of Workers:   {train_loader.num_workers}")
-        print("========================================\n")
-
-        # Load one batch from the training loader
-        logger.info("Loading one batch from train_loader...")
-        
-        # Pull the first batch
-        batch_iter = iter(train_loader)
-        images, patch_names = next(batch_iter)
-        
-        print("\n========================================")
-        print("Train Batch Verification")
-        print("========================================")
-        print(f"Images Shape:        {images.shape}")
-        print(f"Images Dtype:        {images.dtype}")
-        print("First 5 Patch Names in Batch:")
-        for i, name in enumerate(patch_names[:5]):
-            print(f"  {i+1}. {name}")
-        print("========================================\n")
-
-    except Exception as e:
-        logger.exception(f"DataLoader self-test failed: {e}")
+    logging.basicConfig(level=logging.INFO)
+    print("Testing create_paired_dataloaders...")
+    train_ld, val_ld = create_paired_dataloaders(batch_size=64, num_workers=0, require_s2=False)
+    print(f"Paired Train Loader samples: {len(train_ld.dataset)}, batches: {len(train_ld)}")
+    print(f"Paired Val Loader samples:   {len(val_ld.dataset)}, batches: {len(val_ld)}")
+    assert len(train_ld.dataset) == 21000
+    assert len(val_ld.dataset) == 4500
+    assert len(train_ld) == 329
+    assert len(val_ld) == 71
+    print("[PASS] create_paired_dataloaders length and batch count checks passed successfully.")
