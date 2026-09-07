@@ -25,12 +25,15 @@ else:
 SPLITS_DIR: Path = Path(os.getenv("BIGEARTHNET_SPLITS_DIR", BASE_DIR / "data" / "splits"))
 
 # Preprocessing Constants
-IMAGE_SIZE: Tuple[int, int] = (120, 120)  # Default Sentinel-1 patch dimensions in pixels
-PRESERVE_RESOLUTION: bool = True          # If True, keeps original image shape; otherwise, resizes to IMAGE_SIZE
+IMAGE_SIZE: Tuple[int, int] = (224, 224)  # Final Sentinel-1 patch dimensions in pixels
+PRESERVE_RESOLUTION: bool = False         # If True, keeps original image shape; otherwise, resizes to IMAGE_SIZE
 
 # Normalization Configurations
 # Supported modes: "none", "min-max", "z-score"
-NORMALIZATION_MODE: str = "min-max"
+NORMALIZATION_MODE: str = "z-score"
+
+# Sentinel-1 Normalization Statistics File (source of truth computed from 21,000 train patches)
+S1_STATS_PATH: Path = Path(os.getenv("S1_STATS_PATH", BASE_DIR / "outputs" / "s1_stats.json"))
 
 # Sentinel-1 Polarization Suffixes (assumed defaults, will be confirmed in inspection)
 VV_BAND_SUFFIX: str = "_VV.tif"
@@ -38,13 +41,13 @@ VH_BAND_SUFFIX: str = "_VH.tif"
 METADATA_SUFFIX: str = "_labels_metadata.json"
 
 # Normalization Clipping Boundaries (in Decibels - dB)
-# These are standard clipping ranges for Sentinel-1 GRD backscatter coefficient to remove outliers
+# Standard clipping ranges for Sentinel-1 GRD backscatter coefficient to remove outliers
 VV_CLIP_RANGE: Tuple[float, float] = (-25.0, 0.0)
-VH_CLIP_RANGE: Tuple[float, float] = (-32.0, -5.0)
+VH_CLIP_RANGE: Tuple[float, float] = (-25.0, 0.0)
 
-# Default estimated mean & standard deviation for Z-score normalization
-VV_ZSCORE_STATS: Tuple[float, float] = (-12.403296, 4.895232)
-VH_ZSCORE_STATS: Tuple[float, float] = (-19.085194, 5.292950)
+# Default estimated mean & standard deviation for Z-score normalization (from outputs/s1_stats.json)
+VV_ZSCORE_STATS: Tuple[float, float] = (-12.397428, 4.686389)
+VH_ZSCORE_STATS: Tuple[float, float] = (-18.566490, 4.258792)
 
 # Training / DataLoader Defaults
 DEFAULT_BATCH_SIZE: int = 64
@@ -86,6 +89,9 @@ def get_config_summary() -> Dict[str, Any]:
         "DATA_DIR": str(DATA_DIR),
         "SPLITS_DIR": str(SPLITS_DIR),
         "IMAGE_SIZE": IMAGE_SIZE,
+        "PRESERVE_RESOLUTION": PRESERVE_RESOLUTION,
+        "NORMALIZATION_MODE": NORMALIZATION_MODE,
+        "S1_STATS_PATH": str(S1_STATS_PATH),
         "VV_CLIP_RANGE": VV_CLIP_RANGE,
         "VH_CLIP_RANGE": VH_CLIP_RANGE,
         "DEFAULT_BATCH_SIZE": DEFAULT_BATCH_SIZE,

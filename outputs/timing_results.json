@@ -1,0 +1,9 @@
+{
+    "device": "cpu",
+    "model_load_time_ms": 66.97109999913664,
+    "single_inference_ms": 1.5112320000480395,
+    "batch_inference_ms": 14.732319999529864,
+    "throughput_samples_per_second": 678.7797169976703,
+    "total_retrieval_time_ms": 1.1302999992039986,
+    "average_query_latency_ms": 0.05651499996019993
+}

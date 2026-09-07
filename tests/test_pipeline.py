@@ -70,7 +70,7 @@ class TestSARPipeline(unittest.TestCase):
 
         self.assertIsInstance(tensor, torch.Tensor)
         self.assertEqual(tensor.dtype, torch.float32)
-        self.assertEqual(tensor.shape, (2, 120, 120))
+        self.assertEqual(tensor.shape, (2, 224, 224))
         self.assertIsInstance(patch_name, str)
 
         # Check for NaN and Inf values
@@ -144,7 +144,7 @@ class TestSARPipeline(unittest.TestCase):
             # Should log a warning, catch FileNotFoundError, retry, and return a valid patch from another index
             tensor, patch_name = dataset[0]
             self.assertNotEqual(patch_name, "Corrupted_Patch_Mock_Name")
-            self.assertEqual(tensor.shape, (2, 120, 120))
+            self.assertEqual(tensor.shape, (2, 224, 224))
         finally:
             # Restore original values to prevent side effects in other tests
             dataset.patch_names[0] = original_name
@@ -166,7 +166,7 @@ class TestSARPipeline(unittest.TestCase):
         batch_iter = iter(train_loader)
         images, patch_names = next(batch_iter)
 
-        self.assertEqual(images.shape, (batch_size, 2, 120, 120))
+        self.assertEqual(images.shape, (batch_size, 2, 224, 224))
         self.assertEqual(images.dtype, torch.float32)
         self.assertEqual(len(patch_names), batch_size)
 

@@ -6,6 +6,7 @@ from utils.stats_generator import (
     process_patch_stats,
     accumulate_statistics,
     save_statistics,
+    compute_s1_training_stats,
 )
 
 from utils.visualization import (

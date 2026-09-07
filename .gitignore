@@ -15,7 +15,10 @@ venv/
 .venv/
 
 # Outputs
-outputs/
+outputs/*
+!outputs/*.json
+!outputs/*.md
 
 # Large local caches
 .s1_patch_cache.json
+

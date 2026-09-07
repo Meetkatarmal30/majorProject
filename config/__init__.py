@@ -9,6 +9,7 @@ from config.settings import (
     IMAGE_SIZE,
     PRESERVE_RESOLUTION,
     NORMALIZATION_MODE,
+    S1_STATS_PATH,
     VV_BAND_SUFFIX,
     VH_BAND_SUFFIX,
     METADATA_SUFFIX,

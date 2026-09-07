@@ -1,0 +1,30 @@
+{
+    "VV": {
+        "mean": -12.397427574550349,
+        "std": 4.68638948088053,
+        "min": -25.0,
+        "max": 0.0,
+        "pixel_count": 302400000
+    },
+    "VH": {
+        "mean": -18.5664897693347,
+        "std": 4.258792371385701,
+        "min": -25.0,
+        "max": 0.0,
+        "pixel_count": 302400000
+    },
+    "metadata": {
+        "dataset": "BigEarthNet-S1",
+        "split": "train",
+        "num_training_patches": 21000,
+        "excluded_validation_patches": 4500,
+        "seed": 42,
+        "clip_range_db": [
+            -25.0,
+            0.0
+        ],
+        "pixels_per_patch": 14400,
+        "has_nan": false,
+        "has_inf": false
+    }
+}

@@ -1,0 +1,16 @@
+{
+    "status": "SUCCESS",
+    "total_validation_samples": 4500,
+    "embedding_shape": [
+        4500,
+        2048
+    ],
+    "embedding_dtype": "float32",
+    "min": 0.0,
+    "max": 9.187227249145508,
+    "mean": 0.06989026814699173,
+    "std": 0.26676762104034424,
+    "runtime_seconds": 456.26998114585876,
+    "device": "cpu",
+    "alignment_guarantee": "Row-for-row matched to baseline_val_patch_ids.txt"
+}
