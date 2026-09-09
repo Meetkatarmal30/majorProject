@@ -46,8 +46,8 @@ VV_CLIP_RANGE: Tuple[float, float] = (-25.0, 0.0)
 VH_CLIP_RANGE: Tuple[float, float] = (-25.0, 0.0)
 
 # Default estimated mean & standard deviation for Z-score normalization (from outputs/s1_stats.json)
-VV_ZSCORE_STATS: Tuple[float, float] = (-12.397428, 4.686389)
-VH_ZSCORE_STATS: Tuple[float, float] = (-18.566490, 4.258792)
+VV_ZSCORE_STATS: Tuple[float, float] = (-12.543624, 4.776860)
+VH_ZSCORE_STATS: Tuple[float, float] = (-18.648693, 4.358705)
 
 # Training / DataLoader Defaults
 DEFAULT_BATCH_SIZE: int = 64

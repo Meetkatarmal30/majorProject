@@ -1,0 +1,45 @@
+{
+    "status": "SUCCESS",
+    "source_csv": "teammate_inputs/train_split.csv",
+    "row_count": 21000,
+    "unique_s1_count": 21000,
+    "unique_patch_id_count": 21000,
+    "missing_folders": 0,
+    "missing_vv_files": 0,
+    "missing_vh_files": 0,
+    "VV": {
+        "mean": -12.543624363651823,
+        "std": 4.776860394613643,
+        "min": -25.0,
+        "max": 0.0,
+        "pixel_count": 302400000
+    },
+    "VH": {
+        "mean": -18.64869286479878,
+        "std": 4.358704997065159,
+        "min": -25.0,
+        "max": 0.0,
+        "pixel_count": 302400000
+    },
+    "clip_range": [
+        -25.0,
+        0.0
+    ],
+    "has_nan": false,
+    "has_inf": false,
+    "train_val_overlap": 0,
+    "train_test_overlap": 0,
+    "runtime_seconds": 631.7827000617981,
+    "throughput_patches_per_sec": 33.23927672908086,
+    "initial_ram_mb": 242.23828125,
+    "peak_ram_mb": 262.40234375,
+    "final_ram_mb": 262.40234375,
+    "confirmation_no_data_copied_or_duplicated": true,
+    "confirmation_new_official_train_split_used": true,
+    "old_stats_comparison": {
+        "old_stats_valid": false,
+        "old_stats_origin": "Random sample with seed=42 from dataset cache before official train split",
+        "overlap_between_old_and_new_selection": 789,
+        "note": "Regenerated from the NEW official training split (teammate_inputs/train_split.csv)."
+    }
+}

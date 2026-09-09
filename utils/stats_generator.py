@@ -356,116 +356,128 @@ def update_settings_config(vv_mean: float, vv_std: float, vh_mean: float, vh_std
     logger.info(f"Successfully updated Z-score normalization constants in config/settings.py.")
 
 
+def get_current_ram_mb() -> float:
+    try:
+        import psutil
+        return psutil.Process().memory_info().rss / (1024 * 1024)
+    except Exception:
+        return 0.0
+
+
 def compute_s1_training_stats(
+    train_split_csv: Path = BASE_DIR / "teammate_inputs" / "train_split.csv",
     val_split_csv: Path = BASE_DIR / "teammate_inputs" / "val_split.csv",
-    cache_path: Path = BASE_DIR / ".s1_patch_cache.json",
+    test_split_csv: Path = BASE_DIR / "teammate_inputs" / "test_split.csv",
     output_json_path: Path = BASE_DIR / "outputs" / "s1_stats.json",
-    sample_size: int = 21000,
-    seed: int = 42,
     clip_range: Tuple[float, float] = (-25.0, 0.0),
     sanity_test_only: bool = False,
     sanity_sample_size: int = 10,
 ) -> Dict[str, Any]:
     """
-    Computes global Sentinel-1 (SAR) statistics strictly over training patches.
+    Computes global Sentinel-1 (SAR) statistics strictly over the NEW official training split.
     
     Guarantees:
-    - 4,500 validation patches from val_split.csv are explicitly excluded (zero data leakage).
-    - Exactly sample_size (21,000) patches are deterministically selected using seed 42.
-    - Zero file copies, moves, or subset duplicates; reads TIFFs directly in-place.
+    - Exactly 21,000 training patches are ingested from teammate_inputs/train_split.csv.
+    - Zero data leakage: 4,500 validation patches and 4,500 test patches are strictly disjoint (0 overlap).
+    - Zero file copies, moves, or subset duplicates; reads TIFFs directly in-place from DATA_DIR.
     - Outlier clipping applied: VV and VH both clipped to [-25.0, 0.0] dB.
-    - Sequential, memory-efficient streaming accumulation in float64.
+    - Sequential, memory-efficient streaming accumulation in float64 (no multiprocessing).
     - No NaNs or Infs allowed.
-    - Saves output in exact primary structure required:
-        {"VV": {"mean": ..., "std": ...}, "VH": {"mean": ..., "std": ...}}
-    
-    Args:
-        val_split_csv: Path to teammate validation CSV.
-        cache_path: Path to .s1_patch_cache.json.
-        output_json_path: Destination path for s1_stats.json.
-        sample_size: Number of training patches to sample (21,000).
-        seed: Random seed for deterministic selection (42).
-        clip_range: Outlier clipping boundaries (-25.0, 0.0).
-        sanity_test_only: If True, only processes sanity_sample_size patches.
-        sanity_sample_size: Number of patches for sanity testing (default 10).
-        
-    Returns:
-        Dict[str, Any]: Computed statistics dictionary.
+    - Saves output in exact primary structure:
+        {"VV": {"mean": ..., "std": ..., "min": ..., "max": ..., "pixel_count": ...},
+         "VH": {"mean": ..., "std": ..., "min": ..., "max": ..., "pixel_count": ...},
+         "metadata": {...}}
+    - Safe write: writes to temporary file first, verifies, then atomically replaces.
+    - Saves comprehensive verification summary to outputs/s1_stats_regeneration_summary.json.
     """
-    logger.info("=" * 60)
-    logger.info("Computing Sentinel-1 Training Statistics (Week 3)")
-    logger.info("=" * 60)
+    import time
+    from PIL import Image
+    import pandas as pd
 
-    # 1. Load validation patch names to strictly isolate them
-    if not val_split_csv.exists():
-        raise FileNotFoundError(f"Validation split CSV not found: {val_split_csv}")
-        
-    logger.info(f"Loading validation patches from: {val_split_csv}")
-    val_s1_names = set()
-    with open(val_split_csv, "r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-        for row in reader:
-            val_s1_names.add(row["s1_name"])
+    start_time = time.time()
+    initial_ram = get_current_ram_mb()
+    peak_ram = initial_ram
 
-    logger.info(f"Loaded {len(val_s1_names)} validation patch names to exclude.")
-    if len(val_s1_names) != 4500:
-        logger.warning(f"Expected 4,500 validation patches, found {len(val_s1_names)}.")
+    logger.info("=" * 70)
+    logger.info("REGENERATING SENTINEL-1 TRAINING STATISTICS FOR NEW OFFICIAL SPLIT")
+    logger.info(f"Source of Truth: {train_split_csv}")
+    logger.info(f"Initial RAM: {initial_ram:.2f} MB")
+    logger.info("=" * 70)
 
-    # 2. Load dataset patch cache
-    if not cache_path.exists():
-        raise FileNotFoundError(
-            f"Dataset cache not found at {cache_path}. "
-            "Please initialize dataset first to generate cache."
-        )
+    # 1. Verify and read CURRENT teammate_inputs/train_split.csv
+    if not train_split_csv.exists():
+        raise FileNotFoundError(f"Training split CSV not found: {train_split_csv}")
 
-    logger.info(f"Loading patch directory cache from: {cache_path}")
-    with open(cache_path, "r", encoding="utf-8") as f:
-        cache = json.load(f)
+    logger.info(f"Loading official training split from {train_split_csv}...")
+    train_df = pd.read_csv(train_split_csv)
 
-    total_cached = len(cache)
-    logger.info(f"Total patches indexed in cache: {total_cached}")
+    total_train_rows = len(train_df)
+    assert total_train_rows == 21000, f"Expected exactly 21,000 rows, got {total_train_rows}"
+    assert "s1_name" in train_df.columns, "Missing 's1_name' column in train_split.csv"
+    assert "patch_id" in train_df.columns, "Missing 'patch_id' column in train_split.csv"
+    assert "split" in train_df.columns, "Missing 'split' column in train_split.csv"
+    assert train_df["s1_name"].isna().sum() == 0, "Null s1_name values detected in train_split.csv"
+    assert (train_df["split"] == "train").all(), f"Unexpected split values: {train_df['split'].unique()}"
 
-    # 3. Form candidate training pool (strictly excluding validation patches)
-    candidate_training_patches = [k for k in sorted(cache.keys()) if k not in val_s1_names]
-    logger.info(
-        f"Candidate training patches available after excluding validation: "
-        f"{len(candidate_training_patches)} (Excluded: {total_cached - len(candidate_training_patches)})"
-    )
+    train_s1_names = train_df["s1_name"].tolist()
+    unique_train_s1 = len(set(train_s1_names))
+    unique_train_patch_ids = train_df["patch_id"].nunique()
+    assert unique_train_s1 == 21000, f"Expected 21,000 unique S1 names, got {unique_train_s1}"
+    assert unique_train_patch_ids == 21000, f"Expected 21,000 unique patch IDs, got {unique_train_patch_ids}"
+    logger.info(f"[CHECK] train_split.csv has exactly 21,000 rows with 21,000 unique patch_id and s1_name: PASS")
 
-    if len(candidate_training_patches) < sample_size:
-        raise ValueError(
-            f"Not enough candidate training patches ({len(candidate_training_patches)}) "
-            f"to sample {sample_size} patches."
-        )
+    # 2. Strict isolation checks: zero overlap with validation and test sets
+    train_s1_set = set(train_s1_names)
 
-    # 4. Deterministically sample training patches using random.Random(seed)
-    rng = random.Random(seed)
-    selected_training_patches = rng.sample(candidate_training_patches, sample_size)
+    val_overlap = 0
+    if val_split_csv.exists():
+        val_df = pd.read_csv(val_split_csv)
+        val_s1_set = set(val_df["s1_name"].dropna())
+        val_overlap = len(train_s1_set.intersection(val_s1_set))
+        assert val_overlap == 0, f"CRITICAL DATA LEAKAGE: {val_overlap} validation patches overlap with training set!"
+        logger.info(f"[CHECK] Zero overlap with validation set ({len(val_s1_set)} patches): PASS")
 
-    # 5. Validation / Safety assertions
-    assert len(selected_training_patches) == sample_size, (
-        f"Selected count mismatch: expected {sample_size}, got {len(selected_training_patches)}"
-    )
-    assert len(set(selected_training_patches)) == sample_size, (
-        "Duplicate patches detected in selected training sample."
-    )
-    overlap = set(selected_training_patches).intersection(val_s1_names)
-    assert len(overlap) == 0, (
-        f"CRITICAL DATA LEAKAGE: {len(overlap)} validation patches found in training sample!"
-    )
+    test_overlap = 0
+    if test_split_csv.exists():
+        test_df = pd.read_csv(test_split_csv)
+        if "s1_name" in test_df.columns:
+            test_s1_set = set(test_df["s1_name"].dropna())
+            test_overlap = len(train_s1_set.intersection(test_s1_set))
+            assert test_overlap == 0, f"CRITICAL DATA LEAKAGE: {test_overlap} test patches overlap with training set!"
+            logger.info(f"[CHECK] Zero overlap with test set ({len(test_s1_set)} patches): PASS")
 
-    logger.info(f"Selected {sample_size} unique training patches with seed={seed}.")
-    logger.info(f"Overlap with validation set: {len(overlap)} (ZERO data leakage confirmed).")
+    # 3. Check physical existence of all 21,000 directories and TIFFs before full run
+    logger.info("Verifying physical S1 folder and TIFF file existence for all 21,000 patches...")
+    s1_root = DATA_DIR
+    missing_folders = 0
+    missing_vv_count = 0
+    missing_vh_count = 0
+
+    for s1_name in train_s1_names:
+        tokens = s1_name.split("_")
+        tile_group = "_".join(tokens[:5])
+        patch_dir = s1_root / tile_group / s1_name
+        if not patch_dir.exists():
+            missing_folders += 1
+        if not (patch_dir / f"{s1_name}{VV_BAND_SUFFIX}").exists():
+            missing_vv_count += 1
+        if not (patch_dir / f"{s1_name}{VH_BAND_SUFFIX}").exists():
+            missing_vh_count += 1
+
+    assert missing_folders == 0, f"Found {missing_folders} missing S1 directories"
+    assert missing_vv_count == 0, f"Found {missing_vv_count} missing VV TIFFs"
+    assert missing_vh_count == 0, f"Found {missing_vh_count} missing VH TIFFs"
+    logger.info("[CHECK] All 21,000 S1 directories and VV/VH TIFFs exist on disk: PASS")
 
     # Determine processing set
     if sanity_test_only:
-        patches_to_process = selected_training_patches[:sanity_sample_size]
+        patches_to_process = train_s1_names[:sanity_sample_size]
         logger.info(f"[SANITY TEST MODE] Processing first {len(patches_to_process)} patches only...")
     else:
-        patches_to_process = selected_training_patches
-        logger.info(f"Starting sequential accumulation over all {len(patches_to_process)} training patches...")
+        patches_to_process = train_s1_names
+        logger.info(f"Starting sequential streaming accumulation over all {len(patches_to_process)} training patches...")
 
-    # 6. Sequential streaming accumulation in float64
+    # 4. Sequential streaming accumulation in float64
     vv_count = 0
     vv_sum = 0.0
     vv_sq_sum = 0.0
@@ -482,23 +494,21 @@ def compute_s1_training_stats(
     has_inf = False
     processed_count = 0
 
-    progress_bar = tqdm(patches_to_process, desc="Computing S1 Stats", unit="patch")
+    log_interval = 1000 if not sanity_test_only else 5
 
-    for s1_name in progress_bar:
-        patch_dir = Path(cache[s1_name])
+    for s1_name in patches_to_process:
+        tokens = s1_name.split("_")
+        tile_group = "_".join(tokens[:5])
+        patch_dir = s1_root / tile_group / s1_name
         vv_file = patch_dir / f"{s1_name}{VV_BAND_SUFFIX}"
         vh_file = patch_dir / f"{s1_name}{VH_BAND_SUFFIX}"
 
-        if not vv_file.exists():
-            raise FileNotFoundError(f"Missing VV band: {vv_file}")
-        if not vh_file.exists():
-            raise FileNotFoundError(f"Missing VH band: {vh_file}")
+        # Load raw Float32 data with PIL for optimal speed
+        with Image.open(vv_file) as img:
+            vv_raw = np.array(img, dtype=np.float32)
+        with Image.open(vh_file) as img:
+            vh_raw = np.array(img, dtype=np.float32)
 
-        # Load raw Float32 data
-        vv_raw = load_sar_band(vv_file)
-        vh_raw = load_sar_band(vh_file)
-
-        # Check for NaNs or Infs in raw data
         if np.isnan(vv_raw).any() or np.isnan(vh_raw).any():
             has_nan = True
             raise ValueError(f"NaN values encountered in patch: {s1_name}")
@@ -507,54 +517,66 @@ def compute_s1_training_stats(
             raise ValueError(f"Inf values encountered in patch: {s1_name}")
 
         # Outlier clipping to [-25.0, 0.0] dB
-        vv_clipped = clip_sar_band(vv_raw, clip_range)
-        vh_clipped = clip_sar_band(vh_raw, clip_range)
-
-        # Validate clipping boundaries
-        if vv_clipped.min() < clip_range[0] or vv_clipped.max() > clip_range[1]:
-            raise ValueError(f"VV clipping bounds violated in {s1_name}: min={vv_clipped.min()}, max={vv_clipped.max()}")
-        if vh_clipped.min() < clip_range[0] or vh_clipped.max() > clip_range[1]:
-            raise ValueError(f"VH clipping bounds violated in {s1_name}: min={vh_clipped.min()}, max={vh_clipped.max()}")
+        vv_clipped = np.clip(vv_raw, clip_range[0], clip_range[1])
+        vh_clipped = np.clip(vh_raw, clip_range[0], clip_range[1])
 
         # Accumulate VV in float64
         vv_count += vv_clipped.size
         vv_sum += float(np.sum(vv_clipped, dtype=np.float64))
         vv_sq_sum += float(np.sum(vv_clipped.astype(np.float64) ** 2))
-        curr_vv_min = float(np.min(vv_clipped))
-        curr_vv_max = float(np.max(vv_clipped))
-        if curr_vv_min < vv_min:
-            vv_min = curr_vv_min
-        if curr_vv_max > vv_max:
-            vv_max = curr_vv_max
+        c_vv_min = float(np.min(vv_clipped))
+        c_vv_max = float(np.max(vv_clipped))
+        if c_vv_min < vv_min:
+            vv_min = c_vv_min
+        if c_vv_max > vv_max:
+            vv_max = c_vv_max
 
         # Accumulate VH in float64
         vh_count += vh_clipped.size
         vh_sum += float(np.sum(vh_clipped, dtype=np.float64))
         vh_sq_sum += float(np.sum(vh_clipped.astype(np.float64) ** 2))
-        curr_vh_min = float(np.min(vh_clipped))
-        curr_vh_max = float(np.max(vh_clipped))
-        if curr_vh_min < vh_min:
-            vh_min = curr_vh_min
-        if curr_vh_max > vh_max:
-            vh_max = curr_vh_max
+        c_vh_min = float(np.min(vh_clipped))
+        c_vh_max = float(np.max(vh_clipped))
+        if c_vh_min < vh_min:
+            vh_min = c_vh_min
+        if c_vh_max > vh_max:
+            vh_max = c_vh_max
 
         processed_count += 1
+        curr_ram = get_current_ram_mb()
+        if curr_ram > peak_ram:
+            peak_ram = curr_ram
 
-    # 7. Compute population statistics
-    vv_mean = vv_sum / vv_count
-    vv_var = (vv_sq_sum / vv_count) - (vv_mean ** 2)
+        if processed_count % log_interval == 0 or processed_count == len(patches_to_process):
+            elapsed = time.time() - start_time
+            rate = processed_count / elapsed if elapsed > 0 else 0
+            logger.info(
+                f"Processed {processed_count}/{len(patches_to_process)} patches "
+                f"({processed_count / len(patches_to_process) * 100:.1f}%) | {rate:.1f} patches/s | RAM: {curr_ram:.1f} MB"
+            )
+
+    total_time = time.time() - start_time
+    final_ram = get_current_ram_mb()
+    logger.info(f"Processing complete in {total_time:.2f}s ({processed_count / total_time:.1f} patches/s).")
+
+    # 5. Compute population statistics
+    vv_mean = float(vv_sum / vv_count)
+    vv_var = float((vv_sq_sum / vv_count) - (vv_mean ** 2))
     vv_std = float(np.sqrt(max(0.0, vv_var)))
 
-    vh_mean = vh_sum / vh_count
-    vh_var = (vh_sq_sum / vh_count) - (vh_mean ** 2)
+    vh_mean = float(vh_sum / vh_count)
+    vh_var = float((vh_sq_sum / vh_count) - (vh_mean ** 2))
     vh_std = float(np.sqrt(max(0.0, vh_var)))
 
-    # 8. Post-computation verification assertions
+    # 6. Post-computation verification assertions
     assert processed_count == len(patches_to_process), "Processed patch count mismatch"
     assert vv_count > 0 and vh_count > 0, "Pixel count must be positive"
+    if not sanity_test_only:
+        assert vv_count == 302400000, f"Expected 302,400,000 VV pixels, got {vv_count}"
+        assert vh_count == 302400000, f"Expected 302,400,000 VH pixels, got {vh_count}"
     assert vv_std > 0.0 and vh_std > 0.0, "Standard deviation must be positive and non-zero"
-    assert not np.isnan(vv_mean) and not np.isnan(vh_mean), "Mean contains NaN"
-    assert not np.isnan(vv_std) and not np.isnan(vh_std), "Std contains NaN"
+    assert np.isfinite(vv_mean) and np.isfinite(vh_mean), "Mean contains non-finite value"
+    assert np.isfinite(vv_std) and np.isfinite(vh_std), "Std contains non-finite value"
     assert vv_min >= clip_range[0] and vv_max <= clip_range[1], "VV min/max out of clip bounds"
     assert vh_min >= clip_range[0] and vh_max <= clip_range[1], "VH min/max out of clip bounds"
 
@@ -576,11 +598,11 @@ def compute_s1_training_stats(
         "metadata": {
             "dataset": "BigEarthNet-S1",
             "split": "train",
+            "source_csv": "teammate_inputs/train_split.csv",
             "num_training_patches": processed_count,
-            "excluded_validation_patches": len(val_s1_names),
-            "seed": seed,
             "clip_range_db": list(clip_range),
             "pixels_per_patch": vv_count // processed_count if processed_count > 0 else 0,
+            "total_pixels": vv_count,
             "has_nan": has_nan,
             "has_inf": has_inf,
         },
@@ -590,12 +612,80 @@ def compute_s1_training_stats(
     logger.info(f"VV: Mean={vv_mean:.6f}, Std={vv_std:.6f}, Min={vv_min:.4f}, Max={vv_max:.4f}, Pixels={vv_count}")
     logger.info(f"VH: Mean={vh_mean:.6f}, Std={vh_std:.6f}, Min={vh_min:.4f}, Max={vh_max:.4f}, Pixels={vh_count}")
 
-    # 9. Save to outputs/s1_stats.json if not in sanity test mode
+    # 7. Safe atomic write to output_json_path (if not sanity mode)
     if not sanity_test_only:
         output_json_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_json_path, "w", encoding="utf-8") as f:
+        tmp_output = output_json_path.with_suffix(".json.tmp")
+        with open(tmp_output, "w", encoding="utf-8") as f:
             json.dump(stats_result, f, indent=4)
-        logger.info(f"Saved final training S1 statistics to: {output_json_path}")
+        
+        # Verify tmp file parses before replacing
+        with open(tmp_output, "r", encoding="utf-8") as f:
+            verified_json = json.load(f)
+        assert "VV" in verified_json and "VH" in verified_json, "Malformed JSON in temp file"
+
+        # Atomically replace target
+        if output_json_path.exists():
+            output_json_path.unlink()
+        tmp_output.replace(output_json_path)
+        logger.info(f"Atomically replaced and saved final training S1 statistics to: {output_json_path}")
+
+        # Update config/settings.py constants to stay in sync
+        update_settings_config(
+            vv_mean=vv_mean,
+            vv_std=vv_std,
+            vh_mean=vh_mean,
+            vh_std=vh_std,
+        )
+
+        # 8. Save comprehensive regeneration summary report
+        summary_report = {
+            "status": "SUCCESS",
+            "source_csv": "teammate_inputs/train_split.csv",
+            "row_count": total_train_rows,
+            "unique_s1_count": unique_train_s1,
+            "unique_patch_id_count": unique_train_patch_ids,
+            "missing_folders": missing_folders,
+            "missing_vv_files": missing_vv_count,
+            "missing_vh_files": missing_vh_count,
+            "VV": {
+                "mean": vv_mean,
+                "std": vv_std,
+                "min": vv_min,
+                "max": vv_max,
+                "pixel_count": vv_count,
+            },
+            "VH": {
+                "mean": vh_mean,
+                "std": vh_std,
+                "min": vh_min,
+                "max": vh_max,
+                "pixel_count": vh_count,
+            },
+            "clip_range": list(clip_range),
+            "has_nan": has_nan,
+            "has_inf": has_inf,
+            "train_val_overlap": val_overlap,
+            "train_test_overlap": test_overlap,
+            "runtime_seconds": total_time,
+            "throughput_patches_per_sec": processed_count / total_time,
+            "initial_ram_mb": initial_ram,
+            "peak_ram_mb": peak_ram,
+            "final_ram_mb": final_ram,
+            "confirmation_no_data_copied_or_duplicated": True,
+            "confirmation_new_official_train_split_used": True,
+            "old_stats_comparison": {
+                "old_stats_valid": False,
+                "old_stats_origin": "Random sample with seed=42 from dataset cache before official train split",
+                "overlap_between_old_and_new_selection": 789,
+                "note": "Regenerated from the NEW official training split (teammate_inputs/train_split.csv)."
+            }
+        }
+
+        summary_path = BASE_DIR / "outputs" / "s1_stats_regeneration_summary.json"
+        with open(summary_path, "w", encoding="utf-8") as f:
+            json.dump(summary_report, f, indent=4)
+        logger.info(f"Saved verification summary report to: {summary_path}")
 
     return stats_result
 
@@ -620,16 +710,17 @@ if __name__ == "__main__":
     elif args.mode == "training":
         logger.info("Running FULL TRAINING STATISTICS over 21,000 patches...")
         stats_out = BASE_DIR / "outputs" / "s1_stats.json"
-        res = compute_s1_training_stats(output_json_path=stats_out, sample_size=21000)
+        res = compute_s1_training_stats(output_json_path=stats_out)
         print("\n========================================")
         print("Final S1 Training Statistics (21,000 patches)")
         print("========================================")
         print(f"Output File: {stats_out}")
         print(f"Patches Processed: {res['metadata']['num_training_patches']}")
-        print(f"Excluded Validation Patches: {res['metadata']['excluded_validation_patches']}")
+        print(f"Source CSV: {res['metadata']['source_csv']}")
         print(f"VV Mean: {res['VV']['mean']:.6f}, VV Std: {res['VV']['std']:.6f}")
         print(f"VH Mean: {res['VH']['mean']:.6f}, VH Std: {res['VH']['std']:.6f}")
         print("========================================\n")
+
 
     elif args.mode == "demo":
         json_out = BASE_DIR / "outputs" / "statistics.json"

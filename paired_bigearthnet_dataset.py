@@ -1,0 +1,393 @@
+"""
+paired_bigearthnet_dataset.py - Standalone Paired BigEarthNet Dataset and Collate Function.
+
+This module extracts the verified PairedBigEarthNetDataset implementation and paired_collate_fn
+for seamless Two-Tower multimodal integration.
+
+Contents:
+1. BIGEARTHNET_19_CLASSES: Official 19-class land-cover taxonomy.
+2. BigEarthNetLabelEncoder: Deterministic 19-class multi-hot label encoder.
+3. PairedBigEarthNetDataset: Official Paired Sentinel-1 (SAR) and Sentinel-2 (Multispectral) Dataset.
+4. paired_collate_fn: Collation function handling both multimodal and S1-verification batches.
+"""
+
+# IMPORTANT: torch MUST be imported first before any other package on Windows
+# to prevent dynamic link library (DLL) initialization conflicts (e.g. c10.dll).
+import torch
+from torch.utils.data import Dataset
+
+import os
+import re
+import json
+import logging
+from pathlib import Path
+from typing import Dict, List, Any, Tuple, Optional, Union, Callable
+
+import pandas as pd
+
+# Add root directory to sys.path to allow imports from config and preprocessing
+import sys
+_root_dir = str(Path(__file__).resolve().parent)
+if _root_dir not in sys.path:
+    sys.path.insert(0, _root_dir)
+
+from config.settings import (
+    DATA_DIR,
+    BASE_DIR,
+    VV_BAND_SUFFIX,
+    VH_BAND_SUFFIX,
+    setup_logging,
+)
+from preprocessing.sar_preprocessing import preprocess_sar_patch
+from preprocessing.preprocess_s2 import preprocess_s2_patch
+
+logger = setup_logging("PairedDataset")
+
+# Official BigEarthNet 19-class land-cover taxonomy (alphabetically sorted, deterministic)
+BIGEARTHNET_19_CLASSES: List[str] = [
+    "Agro-forestry areas",
+    "Arable land",
+    "Beaches, dunes, sands",
+    "Broad-leaved forest",
+    "Coastal wetlands",
+    "Complex cultivation patterns",
+    "Coniferous forest",
+    "Industrial or commercial units",
+    "Inland waters",
+    "Inland wetlands",
+    "Land principally occupied by agriculture, with significant areas of natural vegetation",
+    "Marine waters",
+    "Mixed forest",
+    "Moors, heathland and sclerophyllous vegetation",
+    "Natural grassland and sparsely vegetated areas",
+    "Pastures",
+    "Permanent crops",
+    "Transitional woodland, shrub",
+    "Urban fabric",
+]
+
+
+class BigEarthNetLabelEncoder:
+    """
+    Deterministic 19-class multi-hot label encoder for BigEarthNet.
+    Parses label strings or iterables into a multi-hot FloatTensor of shape (19,).
+    """
+
+    def __init__(self, classes: Optional[List[str]] = None) -> None:
+        self.classes = list(classes) if classes else list(BIGEARTHNET_19_CLASSES)
+        self.class_to_idx: Dict[str, int] = {cls_name: i for i, cls_name in enumerate(self.classes)}
+        self.num_classes: int = len(self.classes)
+
+    def parse_labels(self, raw_label: Any) -> List[str]:
+        """
+        Parses raw string representation of labels or list into a list of clean class strings.
+        Handles formatting such as:
+        - "['Arable land' 'Pastures']"
+        - "['Arable land', 'Pastures']"
+        - Python lists / sets
+        """
+        if isinstance(raw_label, (list, tuple, set)):
+            return [str(x).strip() for x in raw_label if str(x).strip()]
+
+        val_str = str(raw_label).strip()
+        if val_str.startswith("[") and val_str.endswith("]"):
+            inner = val_str[1:-1].strip()
+            # Match quoted strings (single or double quotes)
+            items = re.findall(r"['\"]([^'\"]+)['\"]", inner)
+            if not items and inner:
+                items = [x.strip() for x in inner.split(",") if x.strip()]
+            return items
+        elif val_str and val_str.lower() != "nan":
+            return [x.strip() for x in val_str.split(",") if x.strip()]
+        return []
+
+    def encode(self, raw_label: Any) -> torch.Tensor:
+        """
+        Encodes the raw label into a (19,) float32 multi-hot tensor.
+        """
+        labels_list = self.parse_labels(raw_label)
+        target = torch.zeros(self.num_classes, dtype=torch.float32)
+        for label_name in labels_list:
+            if label_name in self.class_to_idx:
+                target[self.class_to_idx[label_name]] = 1.0
+        return target
+
+
+class PairedBigEarthNetDataset(Dataset):
+    """
+    Official Paired Sentinel-1 (SAR) and Sentinel-2 (Multispectral) Dataset for BigEarthNet.
+
+    Associates Sentinel-1 SAR patches, Sentinel-2 RGB patches, and 19-class
+    multi-hot labels based on the official training (train_split.csv) or validation (val_split.csv)
+    mapping files.
+
+    Conceptual Interface:
+        PairedBigEarthNetDataset(
+            csv_path,
+            s1_root,
+            s2_root,
+            s1_transform=None,
+            s2_transform=None,
+            require_s2=False,
+            s1_cache_name=".s1_patch_cache.json"
+        )
+
+    Item Return:
+        Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, str]:
+        - sar_tensor: (2, 224, 224), float32
+        - ms_tensor: (3, 224, 224), float32 (or None if require_s2=False and s2_root is unavailable)
+        - label_tensor: (19,), float32
+        - patch_id: str
+    """
+
+    def __init__(
+        self,
+        csv_path: Union[str, Path],
+        s1_root: Union[str, Path] = DATA_DIR,
+        s2_root: Optional[Union[str, Path]] = None,
+        s1_transform: Optional[Callable] = None,
+        s2_transform: Optional[Callable] = None,
+        require_s2: bool = False,
+        s1_cache_name: str = ".s1_patch_cache.json",
+    ) -> None:
+        super().__init__()
+        self.csv_path = Path(csv_path)
+        if not self.csv_path.exists():
+            raise FileNotFoundError(f"Mapping CSV file not found: {self.csv_path}")
+
+        self.s1_root = Path(s1_root)
+        self.s2_root = Path(s2_root) if s2_root else None
+        self.s1_transform = s1_transform
+        self.s2_transform = s2_transform
+        self.require_s2 = require_s2
+        self.s1_cache_path = BASE_DIR / s1_cache_name
+
+        # Validate S2 availability
+        self.s2_available: bool = (self.s2_root is not None and self.s2_root.exists() and self.s2_root.is_dir())
+        if self.require_s2 and not self.s2_available:
+            raise FileNotFoundError(
+                f"Sentinel-2 dataset root directory is unavailable or not found at: '{s2_root}'. "
+                f"BigEarthNet-S2 raw imagery is required on the teammate's machine when require_s2=True. "
+                f"(Synthetic or placeholder S2 data is strictly prohibited)."
+            )
+
+        # Load CSV metadata
+        logger.info(f"Loading paired split metadata from: {self.csv_path}")
+        self.df = pd.read_csv(self.csv_path)
+
+        # Validate required columns
+        required_cols = ["patch_id", "labels", "split", "s1_name", "s2v1_name"]
+        missing_cols = [col for col in required_cols if col not in self.df.columns]
+        if missing_cols:
+            raise ValueError(f"Mapping CSV {self.csv_path} is missing required columns: {missing_cols}")
+
+        self.patch_ids: List[str] = self.df["patch_id"].tolist()
+        self.s1_names: List[str] = self.df["s1_name"].tolist()
+        self.s2v1_names: List[str] = self.df["s2v1_name"].tolist()
+        self.raw_labels: List[Any] = self.df["labels"].tolist()
+
+        # Multi-hot Label Encoder
+        self.label_encoder = BigEarthNetLabelEncoder()
+
+        # Load S1 patch directory cache
+        self.s1_cache = self._load_s1_cache()
+
+        logger.info(
+            f"Initialized PairedBigEarthNetDataset with {len(self.df)} samples "
+            f"(S2 Available: {self.s2_available}, Require S2: {self.require_s2})."
+        )
+
+    def _load_s1_cache(self) -> Dict[str, str]:
+        """
+        Loads the Sentinel-1 patch directory cache.
+        """
+        if self.s1_cache_path.exists():
+            try:
+                with open(self.s1_cache_path, "r", encoding="utf-8") as f:
+                    cache = json.load(f)
+                if cache:
+                    return cache
+            except Exception as e:
+                logger.warning(f"Could not load cache {self.s1_cache_path}: {e}")
+
+        # Fallback to scanning S1 root
+        logger.info(f"Scanning S1 root for patch directories: {self.s1_root}...")
+        cache = {}
+        with os.scandir(self.s1_root) as it:
+            for entry in it:
+                if entry.is_dir():
+                    with os.scandir(entry.path) as it2:
+                        for entry2 in it2:
+                            if entry2.is_dir():
+                                cache[entry2.name] = entry2.path
+
+        if not cache:
+            raise FileNotFoundError(f"No Sentinel-1 patch directories found under {self.s1_root}")
+
+        try:
+            with open(self.s1_cache_path, "w", encoding="utf-8") as f:
+                json.dump(cache, f, indent=4)
+        except Exception:
+            pass
+
+        return cache
+
+    def _resolve_s2_folder(self, patch_id: str, s2v1_name: str) -> Path:
+        """
+        Resolves the Sentinel-2 patch directory on the teammate's machine.
+        Supports standard BigEarthNet nesting schemes.
+        """
+        if not self.s2_root:
+            raise FileNotFoundError("s2_root is not configured.")
+
+        # Candidate 1: Direct subfolder named patch_id
+        candidate1 = self.s2_root / patch_id
+        if candidate1.exists() and candidate1.is_dir():
+            return candidate1
+
+        # Candidate 2: Direct subfolder named s2v1_name
+        candidate2 = self.s2_root / s2v1_name
+        if candidate2.exists() and candidate2.is_dir():
+            return candidate2
+
+        # Candidate 3: Nested under granule tile folder
+        # e.g. S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_29_55 -> parent tile is ..._T33UUP
+        parts = patch_id.rsplit("_", 2)
+        if len(parts) >= 2:
+            tile_folder = parts[0]
+            candidate3 = self.s2_root / tile_folder / patch_id
+            if candidate3.exists() and candidate3.is_dir():
+                return candidate3
+            candidate4 = self.s2_root / tile_folder / s2v1_name
+            if candidate4.exists() and candidate4.is_dir():
+                return candidate4
+
+        raise FileNotFoundError(
+            f"Could not locate Sentinel-2 patch directory for '{patch_id}' / '{s2v1_name}' "
+            f"under root: {self.s2_root}"
+        )
+
+    def __len__(self) -> int:
+        return len(self.patch_ids)
+
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, str]:
+        """
+        Retrieves a paired sample from the dataset.
+
+        Returns:
+            Tuple:
+            - sar_tensor: (2, 224, 224), float32
+            - ms_tensor: (3, 224, 224), float32 (or None if require_s2=False and S2 is unavailable)
+            - label_tensor: (19,), float32
+            - patch_id: str
+        """
+        patch_id = self.patch_ids[idx]
+        s1_name = self.s1_names[idx]
+        s2v1_name = self.s2v1_names[idx]
+        raw_label = self.raw_labels[idx]
+
+        # 1. Sentinel-1 Processing
+        if s1_name not in self.s1_cache:
+            raise KeyError(f"Sentinel-1 patch '{s1_name}' not found in directory cache.")
+
+        s1_dir = Path(self.s1_cache[s1_name])
+        vv_path = s1_dir / f"{s1_name}{VV_BAND_SUFFIX}"
+        vh_path = s1_dir / f"{s1_name}{VH_BAND_SUFFIX}"
+
+        if not vv_path.exists() or not vh_path.exists():
+            raise FileNotFoundError(f"Missing VV/VH TIFF files for S1 patch: {s1_name} in {s1_dir}")
+
+        # On-demand SAR preprocessing -> (2, 224, 224)
+        sar_tensor = preprocess_sar_patch(vv_path=vv_path, vh_path=vh_path)
+        if self.s1_transform is not None:
+            sar_tensor = self.s1_transform(sar_tensor)
+
+        # 2. Sentinel-2 Processing
+        ms_tensor: Optional[torch.Tensor] = None
+        if self.s2_available:
+            s2_folder = self._resolve_s2_folder(patch_id, s2v1_name)
+            ms_tensor = preprocess_s2_patch(s2_folder)
+            if self.s2_transform is not None:
+                ms_tensor = self.s2_transform(ms_tensor)
+        else:
+            if self.require_s2:
+                raise FileNotFoundError(
+                    f"Sentinel-2 dataset root is unavailable. Real BigEarthNet-S2 data is required "
+                    f"when require_s2=True. (Fake or placeholder S2 tensors are strictly disabled)."
+                )
+            # Safe S1-only verification mode
+            ms_tensor = None
+
+        # 3. 19-Class Multi-Hot Label
+        label_tensor = self.label_encoder.encode(raw_label)
+
+        return sar_tensor, ms_tensor, label_tensor, patch_id
+
+
+def paired_collate_fn(
+    batch: List[Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, str]]
+) -> Tuple[torch.Tensor, Optional[torch.Tensor], torch.Tensor, List[str]]:
+    """
+    PyTorch DataLoader collation function for PairedBigEarthNetDataset.
+
+    Handles:
+    - Full multimodal batches: returns (sar_batch, ms_batch, label_batch, patch_ids)
+    - Safe S1-verification batches: returns (sar_batch, None, label_batch, patch_ids)
+    """
+    sar_tensors = torch.stack([item[0] for item in batch], dim=0)
+
+    if batch[0][1] is not None:
+        ms_tensors = torch.stack([item[1] for item in batch], dim=0)
+    else:
+        ms_tensors = None
+
+    label_tensors = torch.stack([item[2] for item in batch], dim=0)
+    patch_ids = [item[3] for item in batch]
+
+    return sar_tensors, ms_tensors, label_tensors, patch_ids
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    print("=" * 70)
+    print("Testing Standalone PairedBigEarthNetDataset & paired_collate_fn")
+    print("=" * 70)
+
+    train_csv = BASE_DIR / "teammate_inputs" / "train_split.csv"
+    val_csv = BASE_DIR / "teammate_inputs" / "val_split.csv"
+
+    print(f"Loading training split: {train_csv}")
+    train_ds = PairedBigEarthNetDataset(csv_path=train_csv, require_s2=False)
+    print(f"Train Dataset length: {len(train_ds)}")
+
+    print(f"Loading validation split: {val_csv}")
+    val_ds = PairedBigEarthNetDataset(csv_path=val_csv, require_s2=False)
+    print(f"Validation Dataset length: {len(val_ds)}")
+
+    # Test single sample from train
+    sar, ms, label, pid = train_ds[0]
+    print(f"\n[Sample 0 from Train]")
+    print(f"  Patch ID: {pid}")
+    print(f"  SAR shape: {sar.shape}, dtype: {sar.dtype}, min: {sar.min():.4f}, max: {sar.max():.4f}")
+    print(f"  MS Tensor: {ms}")
+    print(f"  Label shape: {label.shape}, dtype: {label.dtype}, active classes: {torch.nonzero(label).squeeze().tolist()}")
+
+    # Test paired_collate_fn with 2 samples
+    sample0 = train_ds[0]
+    sample1 = train_ds[1]
+    batch = paired_collate_fn([sample0, sample1])
+    b_sar, b_ms, b_label, b_pids = batch
+    print(f"\n[Collate Function Test (Batch Size 2)]")
+    print(f"  Batch SAR shape: {b_sar.shape}, dtype: {b_sar.dtype}")
+    print(f"  Batch MS: {b_ms}")
+    print(f"  Batch Label shape: {b_label.shape}, dtype: {b_label.dtype}")
+    print(f"  Batch Patch IDs: {b_pids}")
+
+    assert sar.shape == (2, 224, 224), f"Expected SAR shape (2, 224, 224), got {sar.shape}"
+    assert label.shape == (19,), f"Expected label shape (19,), got {label.shape}"
+    assert not torch.isnan(sar).any(), "SAR tensor contains NaN"
+    assert not torch.isinf(sar).any(), "SAR tensor contains Inf"
+    assert b_sar.shape == (2, 2, 224, 224), f"Expected batch SAR shape (2, 2, 224, 224), got {b_sar.shape}"
+    assert b_label.shape == (2, 19), f"Expected batch label shape (2, 19), got {b_label.shape}"
+
+    print("\n[SUCCESS] All standalone checks passed successfully!")

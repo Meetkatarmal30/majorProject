@@ -1,0 +1,212 @@
+{
+    "status": "PASS",
+    "timestamp": "2026-09-08 22:11:39",
+    "runtime_seconds": 7.758767366409302,
+    "initial_ram_mb": 230.78125,
+    "final_ram_mb": 1112.08203125,
+    "split_verification": {
+        "train_csv": "c:\\Users\\Meet Katarmal\\OneDrive\\Desktop\\Major-project\\teammate_inputs\\train_split.csv",
+        "train_rows": 21000,
+        "train_unique_patch_id": 21000,
+        "train_unique_s1_name": 21000,
+        "val_csv": "c:\\Users\\Meet Katarmal\\OneDrive\\Desktop\\Major-project\\teammate_inputs\\val_split.csv",
+        "val_rows": 4500,
+        "val_unique_patch_id": 4500,
+        "val_unique_s1_name": 4500,
+        "test_csv": "c:\\Users\\Meet Katarmal\\OneDrive\\Desktop\\Major-project\\teammate_inputs\\test_split.csv",
+        "test_rows": 4500,
+        "test_unique_patch_id": 4500,
+        "test_unique_s1_name": 4500,
+        "overlaps": {
+            "patch_id_train_val": 0,
+            "patch_id_train_test": 0,
+            "patch_id_val_test": 0,
+            "s1_name_train_val": 0,
+            "s1_name_train_test": 0,
+            "s1_name_val_test": 0
+        },
+        "required_columns_present": true
+    },
+    "paired_dataset_verification": {
+        "dataset_class": "PairedBigEarthNetDataset",
+        "return_signature": "(sar_tensor, ms_tensor, label_tensor, patch_id)",
+        "single_sample_sar_shape": [
+            2,
+            224,
+            224
+        ],
+        "single_sample_sar_dtype": "torch.float32",
+        "single_sample_label_shape": [
+            19
+        ],
+        "single_sample_label_dtype": "torch.float32",
+        "channel_order_s1": "channel 0 = VV, channel 1 = VH",
+        "channel_order_s2": "channel 0 = B04, channel 1 = B03, channel 2 = B02"
+    },
+    "s1_preprocessing_verification": {
+        "vv_clip_range": [
+            -25.0,
+            0.0
+        ],
+        "vh_clip_range": [
+            -25.0,
+            0.0
+        ],
+        "norm_mode": "z-score",
+        "s1_stats_path": "C:\\Users\\Meet Katarmal\\OneDrive\\Desktop\\Major-project\\outputs\\s1_stats.json",
+        "s1_stats_loaded": {
+            "VV_mean": -12.543624363651823,
+            "VV_std": 4.776860394613643,
+            "VH_mean": -18.64869286479878,
+            "VH_std": 4.358704997065159
+        },
+        "output_shape": [
+            224,
+            224
+        ],
+        "preserve_resolution": false
+    },
+    "dataloader_verification": {
+        "train_batch_size": 64,
+        "val_batch_size": 64,
+        "train_shuffle": true,
+        "val_shuffle": false,
+        "train_num_workers": 0,
+        "val_num_workers": 0,
+        "train_batches": 329,
+        "val_batches": 71
+    },
+    "real_s1_batch_verification": {
+        "train_batch_sar_shape": [
+            64,
+            2,
+            224,
+            224
+        ],
+        "train_batch_sar_dtype": "torch.float32",
+        "train_batch_label_shape": [
+            64,
+            19
+        ],
+        "train_batch_has_nan": false,
+        "train_batch_has_inf": false,
+        "train_batch_all_zero": false,
+        "val_batch_sar_shape": [
+            64,
+            2,
+            224,
+            224
+        ],
+        "val_batch_sar_dtype": "torch.float32",
+        "val_batch_label_shape": [
+            64,
+            19
+        ],
+        "val_batch_has_nan": false,
+        "val_batch_has_inf": false,
+        "val_batch_all_zero": false,
+        "val_batch_exact_row_match": true,
+        "physical_s1_files_exist": true
+    },
+    "s2_static_verification": {
+        "s2_raw_dataset_present_locally": false,
+        "s2_stats_path": "c:\\Users\\Meet Katarmal\\OneDrive\\Desktop\\Major-project\\teammate_inputs\\s2_stats.json",
+        "s2_mean": [
+            587.0338134765625,
+            613.2787475585938,
+            438.18780517578125
+        ],
+        "s2_std": [
+            691.3711547851562,
+            611.592529296875,
+            615.3070068359375
+        ],
+        "configured_output_shape": [
+            3,
+            224,
+            224
+        ],
+        "configured_bands": [
+            "B04",
+            "B03",
+            "B02"
+        ],
+        "note": "Raw Sentinel-2 dataset is not present locally (as expected); pipeline verified statically and ready for teammate."
+    },
+    "stale_code_findings": [
+        {
+            "pattern": "(2, 120, 120)",
+            "file": "run_pipeline.py",
+            "lines": [
+                83,
+                130,
+                138,
+                187
+            ],
+            "classification": "legacy/unused",
+            "description": "Legacy standalone demo pipeline script from early Week 1 testing. Not imported or used by training or paired datasets."
+        },
+        {
+            "pattern": "(3, 120, 120)",
+            "file": "preprocessing/preprocess_s2.py",
+            "lines": [
+                158
+            ],
+            "classification": "documentation/comment",
+            "description": "Docstring comment describing raw S2 GeoTIFF dimensions before resizing to 224x224. Safe to leave."
+        },
+        {
+            "pattern": "(2, 120, 120)",
+            "file": "evaluation/timing.py",
+            "lines": [
+                259
+            ],
+            "classification": "documentation/test artifact",
+            "description": "Standalone mock dataset in timing evaluation test harness. Safe to leave."
+        },
+        {
+            "pattern": "(2, 120, 120)",
+            "file": "docs/README.md",
+            "lines": [
+                116,
+                141,
+                178
+            ],
+            "classification": "documentation",
+            "description": "Historical documentation from Week 1. Safe to leave."
+        },
+        {
+            "pattern": "PRESERVE_RESOLUTION=True",
+            "file": "config/settings.py",
+            "lines": [
+                29
+            ],
+            "classification": "safe to leave (currently False)",
+            "description": "PRESERVE_RESOLUTION is explicitly set to False in config/settings.py, ensuring all tensors are resized to (224, 224)."
+        },
+        {
+            "pattern": "VH clip [-32.0, -5.0]",
+            "file": "outputs/week3_s1_gap_analysis.md, docs/README.md, outputs/statistics.json",
+            "lines": [],
+            "classification": "documentation/test artifact",
+            "description": "Historical documentation and old Week 1 scan results. Active code in config/settings.py and preprocessing strictly uses [-25.0, 0.0]."
+        },
+        {
+            "pattern": "0.70 / 70/15/15 split",
+            "file": "dataset/dataset.py",
+            "lines": [
+                215
+            ],
+            "classification": "legacy fallback in BigEarthNetS1Dataset",
+            "description": "Fallback in single-modality BigEarthNetS1Dataset when no split file is provided. PairedBigEarthNetDataset does NOT use it; it uses train_split.csv and val_split.csv directly."
+        },
+        {
+            "pattern": "Hardcoded S2 Windows paths",
+            "file": "None in active code",
+            "lines": [],
+            "classification": "clean",
+            "description": "s2_root is purely dynamic and configurable via argument in PairedBigEarthNetDataset and create_paired_dataloaders."
+        }
+    ],
+    "readiness_for_two_tower_integration": true
+}

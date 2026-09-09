@@ -1,14 +1,14 @@
 {
     "VV": {
-        "mean": -12.397427574550349,
-        "std": 4.68638948088053,
+        "mean": -12.543624363651823,
+        "std": 4.776860394613643,
         "min": -25.0,
         "max": 0.0,
         "pixel_count": 302400000
     },
     "VH": {
-        "mean": -18.5664897693347,
-        "std": 4.258792371385701,
+        "mean": -18.64869286479878,
+        "std": 4.358704997065159,
         "min": -25.0,
         "max": 0.0,
         "pixel_count": 302400000
@@ -16,14 +16,14 @@
     "metadata": {
         "dataset": "BigEarthNet-S1",
         "split": "train",
+        "source_csv": "teammate_inputs/train_split.csv",
         "num_training_patches": 21000,
-        "excluded_validation_patches": 4500,
-        "seed": 42,
         "clip_range_db": [
             -25.0,
             0.0
         ],
         "pixels_per_patch": 14400,
+        "total_pixels": 302400000,
         "has_nan": false,
         "has_inf": false
     }

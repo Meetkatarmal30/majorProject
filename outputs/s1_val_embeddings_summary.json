@@ -1,22 +1,43 @@
 {
     "status": "SUCCESS",
-    "split_file_used": "teammate_inputs/val_split.csv",
-    "total_validation_samples": 4500,
+    "validation_csv_path": "C:\\Users\\Meet Katarmal\\OneDrive\\Desktop\\Major-project\\teammate_inputs\\val_split.csv",
+    "validation_row_count": 4500,
     "embedding_shape": [
         4500,
         2048
     ],
     "embedding_dtype": "float32",
+    "patch_id_count": 4500,
+    "unique_patch_id_count": 4500,
+    "exact_row_by_row_equality_s1_name": true,
+    "missing_s1_folders": 0,
+    "missing_vv_files": 0,
+    "missing_vh_files": 0,
+    "nan_count": 0,
+    "inf_count": 0,
+    "all_zero": false,
     "min": 0.0,
-    "max": 9.772329330444336,
-    "mean": 0.06694290041923523,
-    "std": 0.2677769660949707,
-    "runtime_seconds": 305.27586245536804,
-    "throughput_samples_per_sec": 14.740765823429323,
-    "initial_ram_mb": 318.6484375,
-    "final_ram_mb": 1097.69921875,
+    "max": 10.34888744354248,
+    "mean": 0.06533131003379822,
+    "std": 0.270114004611969,
+    "runtime_seconds": 441.8038318157196,
+    "throughput_samples_per_sec": 10.18551600493359,
+    "initial_ram_mb": 317.85546875,
+    "peak_ram_mb": 1120.9140625,
+    "final_ram_mb": 1121.06640625,
     "device": "cpu",
+    "confirmation_no_data_copied_or_duplicated": true,
     "id_format": "s1_name (Sentinel-1 patch names, NOT S2 patch_id)",
     "row_alignment": "100% exact match with val_split.csv['s1_name'] row-for-row",
-    "changed_positions_from_previous_baseline": 4500
+    "old_baseline_comparison": {
+        "old_baseline_exists": true,
+        "old_embedding_shape": [
+            4500,
+            2048
+        ],
+        "old_s1_id_count": 4500,
+        "number_of_different_ids": 4500,
+        "ordering_changed": true,
+        "official_split_statement": "The generated embeddings and patch IDs are strictly based on the NEW official validation split (teammate_inputs/val_split.csv), which is now the official project source of truth."
+    }
 }
