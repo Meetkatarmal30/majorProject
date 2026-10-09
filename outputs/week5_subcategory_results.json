@@ -1,0 +1,584 @@
+[
+  {
+    "domain": "disaster-response",
+    "subcategory": "flood",
+    "subcategory_name": "Flood",
+    "configured_modality": "SAR",
+    "query_modality": "SAR",
+    "success": true,
+    "results_count": 10,
+    "top_patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_42_63",
+    "top_similarity_score": 0.8193,
+    "top_modality": "Multispectral",
+    "top_label": "Coniferous forest",
+    "provenance": "cross-modal (SAR -> MS)",
+    "latency_ms": 209.68,
+    "retrieved_results": [
+      {
+        "rank": 1,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_42_63",
+        "score": 0.8193,
+        "modality": "Multispectral",
+        "label": "Coniferous forest",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 2,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_65_40",
+        "score": 0.7686,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 3,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+        "score": 0.7657,
+        "modality": "Multispectral",
+        "label": "Complex cultivation patterns",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 4,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_58_67",
+        "score": 0.7474,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 5,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_64_50",
+        "score": 0.7323,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 6,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+        "score": 0.7243,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 7,
+        "patch_id": "S2A_MSIL2A_20170717T113321_N9999_R080_T29UPV_26_48",
+        "score": 0.7191,
+        "modality": "Multispectral",
+        "label": "Pastures",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 8,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_65_41",
+        "score": 0.7156,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 9,
+        "patch_id": "S2A_MSIL2A_20170717T113321_N9999_R080_T29UPV_49_48",
+        "score": 0.7142,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 10,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_63_51",
+        "score": 0.7097,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      }
+    ]
+  },
+  {
+    "domain": "disaster-response",
+    "subcategory": "wildfire",
+    "subcategory_name": "Wildfire",
+    "configured_modality": "Multispectral",
+    "query_modality": "MS",
+    "success": true,
+    "results_count": 10,
+    "top_patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+    "top_similarity_score": 0.7866,
+    "top_modality": "SAR",
+    "top_label": "Complex cultivation patterns",
+    "provenance": "cross-modal (MS -> SAR)",
+    "latency_ms": 112.61,
+    "retrieved_results": [
+      {
+        "rank": 1,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+        "score": 0.7866,
+        "modality": "SAR",
+        "label": "Complex cultivation patterns",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 2,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_55_50",
+        "score": 0.7699,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 3,
+        "patch_id": "S2A_MSIL2A_20170704T112111_N9999_R037_T29SND_28_58",
+        "score": 0.7439,
+        "modality": "SAR",
+        "label": "Agro-forestry areas",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 4,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_43_61",
+        "score": 0.7315,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 5,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+        "score": 0.7242,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 6,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_38_52",
+        "score": 0.7213,
+        "modality": "SAR",
+        "label": "Pastures",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 7,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_65_41",
+        "score": 0.7153,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 8,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_60_64",
+        "score": 0.7002,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 9,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_34_53",
+        "score": 0.6992,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 10,
+        "patch_id": "S2B_MSIL2A_20180421T114349_N9999_R123_T29UPU_38_52",
+        "score": 0.6981,
+        "modality": "SAR",
+        "label": "Pastures",
+        "provenance": "cross-modal (MS -> SAR)"
+      }
+    ]
+  },
+  {
+    "domain": "disaster-response",
+    "subcategory": "earthquake-damage",
+    "subcategory_name": "Earthquake Damage",
+    "configured_modality": "SAR",
+    "query_modality": "SAR",
+    "success": true,
+    "results_count": 10,
+    "top_patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_42_63",
+    "top_similarity_score": 0.8193,
+    "top_modality": "Multispectral",
+    "top_label": "Coniferous forest",
+    "provenance": "cross-modal (SAR -> MS)",
+    "latency_ms": 112.38,
+    "retrieved_results": [
+      {
+        "rank": 1,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_42_63",
+        "score": 0.8193,
+        "modality": "Multispectral",
+        "label": "Coniferous forest",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 2,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_65_40",
+        "score": 0.7686,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 3,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+        "score": 0.7657,
+        "modality": "Multispectral",
+        "label": "Complex cultivation patterns",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 4,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_58_67",
+        "score": 0.7474,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 5,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_64_50",
+        "score": 0.7323,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 6,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+        "score": 0.7243,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 7,
+        "patch_id": "S2A_MSIL2A_20170717T113321_N9999_R080_T29UPV_26_48",
+        "score": 0.7191,
+        "modality": "Multispectral",
+        "label": "Pastures",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 8,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_65_41",
+        "score": 0.7156,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 9,
+        "patch_id": "S2A_MSIL2A_20170717T113321_N9999_R080_T29UPV_49_48",
+        "score": 0.7142,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 10,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_63_51",
+        "score": 0.7097,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      }
+    ]
+  },
+  {
+    "domain": "environmental-monitoring",
+    "subcategory": "deforestation",
+    "subcategory_name": "Deforestation",
+    "configured_modality": "Hybrid",
+    "query_modality": "SAR",
+    "success": true,
+    "results_count": 10,
+    "top_patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+    "top_similarity_score": 1.0,
+    "top_modality": "SAR",
+    "top_label": "Arable land",
+    "provenance": "unimodal (SAR -> SAR)",
+    "latency_ms": 117.39,
+    "retrieved_results": [
+      {
+        "rank": 1,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+        "score": 1.0,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "unimodal (SAR -> SAR)"
+      },
+      {
+        "rank": 2,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_42_63",
+        "score": 0.8193,
+        "modality": "Multispectral",
+        "label": "Coniferous forest",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 3,
+        "patch_id": "S2A_MSIL2A_20170717T113321_N9999_R080_T29UPV_26_48",
+        "score": 0.7762,
+        "modality": "SAR",
+        "label": "Pastures",
+        "provenance": "unimodal (SAR -> SAR)"
+      },
+      {
+        "rank": 4,
+        "patch_id": "S2A_MSIL2A_20170717T113321_N9999_R080_T29UPV_41_49",
+        "score": 0.7706,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "unimodal (SAR -> SAR)"
+      },
+      {
+        "rank": 5,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_65_41",
+        "score": 0.7704,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "unimodal (SAR -> SAR)"
+      },
+      {
+        "rank": 6,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_65_40",
+        "score": 0.7686,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 7,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+        "score": 0.7657,
+        "modality": "Multispectral",
+        "label": "Complex cultivation patterns",
+        "provenance": "cross-modal (SAR -> MS)"
+      },
+      {
+        "rank": 8,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_58_54",
+        "score": 0.7548,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "unimodal (SAR -> SAR)"
+      },
+      {
+        "rank": 9,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_38_52",
+        "score": 0.7541,
+        "modality": "SAR",
+        "label": "Pastures",
+        "provenance": "unimodal (SAR -> SAR)"
+      },
+      {
+        "rank": 10,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_58_67",
+        "score": 0.7474,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "cross-modal (SAR -> MS)"
+      }
+    ]
+  },
+  {
+    "domain": "environmental-monitoring",
+    "subcategory": "drought",
+    "subcategory_name": "Drought",
+    "configured_modality": "Multispectral",
+    "query_modality": "MS",
+    "success": true,
+    "results_count": 10,
+    "top_patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+    "top_similarity_score": 0.7866,
+    "top_modality": "SAR",
+    "top_label": "Complex cultivation patterns",
+    "provenance": "cross-modal (MS -> SAR)",
+    "latency_ms": 105.23,
+    "retrieved_results": [
+      {
+        "rank": 1,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+        "score": 0.7866,
+        "modality": "SAR",
+        "label": "Complex cultivation patterns",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 2,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_55_50",
+        "score": 0.7699,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 3,
+        "patch_id": "S2A_MSIL2A_20170704T112111_N9999_R037_T29SND_28_58",
+        "score": 0.7439,
+        "modality": "SAR",
+        "label": "Agro-forestry areas",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 4,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_43_61",
+        "score": 0.7315,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 5,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+        "score": 0.7242,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 6,
+        "patch_id": "S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_38_52",
+        "score": 0.7213,
+        "modality": "SAR",
+        "label": "Pastures",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 7,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_65_41",
+        "score": 0.7153,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 8,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_60_64",
+        "score": 0.7002,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 9,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_34_53",
+        "score": 0.6992,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 10,
+        "patch_id": "S2B_MSIL2A_20180421T114349_N9999_R123_T29UPU_38_52",
+        "score": 0.6981,
+        "modality": "SAR",
+        "label": "Pastures",
+        "provenance": "cross-modal (MS -> SAR)"
+      }
+    ]
+  },
+  {
+    "domain": "urban-agricultural",
+    "subcategory": "crop-mapping",
+    "subcategory_name": "Crop Mapping",
+    "configured_modality": "Hybrid",
+    "query_modality": "MS",
+    "success": true,
+    "results_count": 10,
+    "top_patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+    "top_similarity_score": 1.0,
+    "top_modality": "Multispectral",
+    "top_label": "Arable land",
+    "provenance": "unimodal (MS -> MS)",
+    "latency_ms": 110.65,
+    "retrieved_results": [
+      {
+        "rank": 1,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66",
+        "score": 1.0,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 2,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_61_68",
+        "score": 0.8381,
+        "modality": "Multispectral",
+        "label": "Complex cultivation patterns",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 3,
+        "patch_id": "S2B_MSIL2A_20170930T095019_N9999_R079_T34UEG_43_61",
+        "score": 0.7991,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 4,
+        "patch_id": "S2A_MSIL2A_20180510T094031_N9999_R036_T35VLC_44_68",
+        "score": 0.7747,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 5,
+        "patch_id": "S2A_MSIL2A_20170701T093031_N9999_R136_T35VPK_25_51",
+        "score": 0.7702,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 6,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_55_50",
+        "score": 0.7699,
+        "modality": "SAR",
+        "label": "Arable land",
+        "provenance": "cross-modal (MS -> SAR)"
+      },
+      {
+        "rank": 7,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_49_66",
+        "score": 0.7662,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 8,
+        "patch_id": "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_34_53",
+        "score": 0.7506,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 9,
+        "patch_id": "S2B_MSIL2A_20170927T094019_N9999_R036_T35ULB_65_41",
+        "score": 0.7467,
+        "modality": "Multispectral",
+        "label": "Arable land",
+        "provenance": "unimodal (MS -> MS)"
+      },
+      {
+        "rank": 10,
+        "patch_id": "S2A_MSIL2A_20170704T112111_N9999_R037_T29SND_28_58",
+        "score": 0.7439,
+        "modality": "SAR",
+        "label": "Agro-forestry areas",
+        "provenance": "cross-modal (MS -> SAR)"
+      }
+    ]
+  }
+]

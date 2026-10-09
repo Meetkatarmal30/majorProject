@@ -22,3 +22,12 @@ outputs/*
 # Large local caches
 .s1_patch_cache.json
 
+# Checkpoints and models
+models/
+*.ckpt
+
+# Flask uploads instance folder
+instance/
+
+# Teammate inputs and large datasets
+teammate_inputs/

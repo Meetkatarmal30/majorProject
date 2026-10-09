@@ -1,0 +1,64 @@
+{
+  "domains": {
+    "disaster-response": {
+      "name": "Disaster Response and Crisis Mapping",
+      "eyebrow": "01 / Rapid Assessment",
+      "description": "Find matching satellite scenes for time-critical events, whatever the weather.",
+      "accent": "coral",
+      "subcategories": {
+        "flood": {
+          "name": "Flood",
+          "modality": "SAR",
+          "reason": "SAR sees through clouds and works at night, making it the strongest choice for rapid flood extent mapping.",
+          "detail": "Best for water extent, inundation boundaries, and emergency response after heavy rainfall."
+        },
+        "wildfire": {
+          "name": "Wildfire",
+          "modality": "Multispectral",
+          "reason": "Multispectral bands reveal burn severity and vegetation stress through spectral change.",
+          "detail": "Best for comparing vegetation health, burn scars, and recently burned surfaces."
+        },
+        "earthquake-damage": {
+          "name": "Earthquake Damage",
+          "modality": "SAR",
+          "reason": "SAR backscatter and structural coherence detect collapsed buildings and rubble independent of dust clouds and weather.",
+          "detail": "Best for structural damage assessment, debris detection, and emergency mapping."
+        }
+      }
+    },
+    "environmental-monitoring": {
+      "name": "Environmental Monitoring",
+      "eyebrow": "02 / Living Systems",
+      "description": "Read the pulse of forests, water, and protected landscapes from above.",
+      "accent": "mint",
+      "subcategories": {
+        "deforestation": {
+          "name": "Deforestation",
+          "modality": "Hybrid",
+          "reason": "Optical color and radar structure together provide a more reliable view of canopy change and clear-cutting.",
+          "detail": "Best for canopy disturbance, logging roads, and forest boundary change over time."
+        },
+        "drought": {
+          "name": "Drought",
+          "modality": "Multispectral",
+          "reason": "Visible and near-infrared reflectance directly measures chlorophyll loss, moisture stress, and drying vegetation.",
+          "detail": "Best for vegetative health indices, moisture monitoring, and agricultural drought tracking."
+        }
+      }
+    },
+    "urban-agricultural": {
+      "name": "Urban and Agricultural Intelligence",
+      "eyebrow": "03 / Human Landscapes",
+      "description": "Compare the patterns of fields, infrastructure, and the places where people live.",
+      "accent": "gold",
+      "subcategories": {
+        "crop-mapping": {
+          "name": "Crop Mapping",
+          "modality": "Hybrid",
+          "reason": "Combining spectral vegetation indices with radar surface roughness separates crop phenology from soil texture.",
+          "detail": "Best for crop classification, phenological stage tracking, and field boundary mapping."
+        }
+      }
+    }
+  }
+}

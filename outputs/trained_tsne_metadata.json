@@ -1,0 +1,60 @@
+{
+  "title": "Trained Two-Tower Validation Embeddings t-SNE Projection",
+  "timestamp_utc": "2026-09-22T23:07:31.287680Z",
+  "engineer": "Meet (Person 3)",
+  "week": "Week 4",
+  "sample_selection": {
+    "total_points": 2000,
+    "multispectral_points": 1000,
+    "sar_points": 1000,
+    "source_id_file": "teammate_inputs/baseline_tsne_patch_ids.txt",
+    "identical_to_baseline_subset": true
+  },
+  "class_breakdown": {
+    "Arable land": {
+      "multispectral": 432,
+      "sar": 431,
+      "total": 863
+    },
+    "Coniferous forest": {
+      "multispectral": 208,
+      "sar": 219,
+      "total": 427
+    },
+    "Broad-leaved forest": {
+      "multispectral": 174,
+      "sar": 189,
+      "total": 363
+    },
+    "Marine waters": {
+      "multispectral": 117,
+      "sar": 99,
+      "total": 216
+    },
+    "Agro-forestry areas": {
+      "multispectral": 69,
+      "sar": 62,
+      "total": 131
+    }
+  },
+  "embedding_properties": {
+    "dimension": 512,
+    "dtype": "float32",
+    "normalization": "L2-normalized projection",
+    "ms_embedding_file": "teammate_inputs/trained_val_ms_embeddings.npy",
+    "sar_embedding_file": "teammate_inputs/trained_val_sar_embeddings.npy"
+  },
+  "tsne_parameters": {
+    "n_components": 2,
+    "perplexity": 30,
+    "random_state": 42,
+    "iterations": 1000,
+    "init": "pca",
+    "metric": "euclidean"
+  },
+  "output_files": {
+    "plot": "outputs\\trained_tsne.png",
+    "metadata": "outputs\\trained_tsne_metadata.json",
+    "baseline_comparison_reference": "teammate_inputs/adarsh_baseline_tsne.png"
+  }
+}
