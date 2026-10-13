@@ -31,3 +31,6 @@ instance/
 
 # Teammate inputs and large datasets
 teammate_inputs/
+
+# IDE settings
+.vscode/

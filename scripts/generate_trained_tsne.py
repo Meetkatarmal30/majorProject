@@ -24,12 +24,9 @@ from pathlib import Path
 from collections import Counter
 
 import numpy as np
-_orig_numpy_version = getattr(np, "__version__", "1.24.3")
-np.__version__ = "1.25.0"
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import matplotlib.lines as mlines
-np.__version__ = _orig_numpy_version
 import pandas as pd
 from sklearn.manifold import TSNE
 
