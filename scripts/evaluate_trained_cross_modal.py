@@ -29,26 +29,34 @@ import pandas as pd
 # PATHS
 # ============================================================
 
-TEST_CSV = Path("outputs/metadata/test_split.csv")
+BASE_DIR = Path(__file__).resolve().parent.parent
 
-EMBEDDINGS_DIR = Path("outputs/embeddings")
-INDEX_DIR = Path("outputs/indices")
-REPORT_DIR = Path("outputs/reports")
+# Test split metadata location
+if (BASE_DIR / "outputs" / "metadata" / "test_split.csv").exists():
+    TEST_CSV = BASE_DIR / "outputs" / "metadata" / "test_split.csv"
+elif (BASE_DIR / "teammate_inputs" / "test_split.csv").exists():
+    TEST_CSV = BASE_DIR / "teammate_inputs" / "test_split.csv"
+else:
+    TEST_CSV = BASE_DIR / "outputs" / "metadata" / "test_split.csv"
 
-SAR_EMBEDDINGS = (
-    EMBEDDINGS_DIR / "trained_test_sar_embeddings.npy"
-)
+# Embeddings directory location
+if (BASE_DIR / "outputs" / "embeddings" / "trained_test_sar_embeddings.npy").exists():
+    EMBEDDINGS_DIR = BASE_DIR / "outputs" / "embeddings"
+elif (BASE_DIR / "teammate_inputs" / "trained_test_sar_embeddings.npy").exists():
+    EMBEDDINGS_DIR = BASE_DIR / "teammate_inputs"
+else:
+    EMBEDDINGS_DIR = BASE_DIR / "outputs" / "embeddings"
 
-MS_EMBEDDINGS = (
-    EMBEDDINGS_DIR / "trained_test_ms_embeddings.npy"
-)
+INDEX_DIR = BASE_DIR / "outputs" / "indices"
+REPORT_DIR = BASE_DIR / "outputs" / "reports"
+
+SAR_EMBEDDINGS = EMBEDDINGS_DIR / "trained_test_sar_embeddings.npy"
+MS_EMBEDDINGS = EMBEDDINGS_DIR / "trained_test_ms_embeddings.npy"
 
 SAR_INDEX_PATH = INDEX_DIR / "sar_gallery.index"
 MS_INDEX_PATH = INDEX_DIR / "ms_gallery.index"
 
-OUTPUT_CSV = (
-    REPORT_DIR / "trained_cross_modal_results.csv"
-)
+OUTPUT_CSV = REPORT_DIR / "trained_cross_modal_results.csv"
 
 TOP_K = 10
 EXPECTED_SAMPLES = 4500
@@ -235,7 +243,16 @@ def main() -> None:
     # LOAD EMBEDDINGS
     # --------------------------------------------------------
 
-    print("Loading trained test embeddings...")
+    if not SAR_EMBEDDINGS.exists():
+        raise FileNotFoundError(
+            f"SAR test embeddings file not found at: {SAR_EMBEDDINGS}\n"
+            f"Please verify teammate_inputs/trained_test_sar_embeddings.npy exists."
+        )
+    if not MS_EMBEDDINGS.exists():
+        raise FileNotFoundError(
+            f"MS test embeddings file not found at: {MS_EMBEDDINGS}\n"
+            f"Please verify teammate_inputs/trained_test_ms_embeddings.npy exists."
+        )
 
     sar_embeddings = np.load(
         SAR_EMBEDDINGS

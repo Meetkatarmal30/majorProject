@@ -12,7 +12,7 @@
     "top_modality": "Multispectral",
     "top_label": "Coniferous forest",
     "provenance": "cross-modal (SAR -> MS)",
-    "latency_ms": 209.68,
+    "latency_ms": 218.78,
     "retrieved_results": [
       {
         "rank": 1,
@@ -109,7 +109,7 @@
     "top_modality": "SAR",
     "top_label": "Complex cultivation patterns",
     "provenance": "cross-modal (MS -> SAR)",
-    "latency_ms": 112.61,
+    "latency_ms": 108.73,
     "retrieved_results": [
       {
         "rank": 1,
@@ -206,7 +206,7 @@
     "top_modality": "Multispectral",
     "top_label": "Coniferous forest",
     "provenance": "cross-modal (SAR -> MS)",
-    "latency_ms": 112.38,
+    "latency_ms": 91.37,
     "retrieved_results": [
       {
         "rank": 1,
@@ -303,7 +303,7 @@
     "top_modality": "SAR",
     "top_label": "Arable land",
     "provenance": "unimodal (SAR -> SAR)",
-    "latency_ms": 117.39,
+    "latency_ms": 91.65,
     "retrieved_results": [
       {
         "rank": 1,
@@ -400,7 +400,7 @@
     "top_modality": "SAR",
     "top_label": "Complex cultivation patterns",
     "provenance": "cross-modal (MS -> SAR)",
-    "latency_ms": 105.23,
+    "latency_ms": 98.04,
     "retrieved_results": [
       {
         "rank": 1,
@@ -497,7 +497,7 @@
     "top_modality": "Multispectral",
     "top_label": "Arable land",
     "provenance": "unimodal (MS -> MS)",
-    "latency_ms": 110.65,
+    "latency_ms": 94.33,
     "retrieved_results": [
       {
         "rank": 1,

@@ -18,6 +18,10 @@ venv/
 outputs/*
 !outputs/*.json
 !outputs/*.md
+!outputs/reports/
+!outputs/reports/*
+!outputs/indices/
+!outputs/indices/*
 
 # Large local caches
 .s1_patch_cache.json
@@ -30,7 +34,12 @@ models/
 instance/
 
 # Teammate inputs and large datasets
-teammate_inputs/
+teammate_inputs/*
+!teammate_inputs/trained_test_sar_patch_ids.txt
+!teammate_inputs/trained_test_ms_patch_ids.txt
+teammate_inputs/*.npy
+teammate_inputs/BigEarthNet*
+teammate_inputs/extracted_patches*
 
 # IDE settings
 .vscode/

@@ -21,8 +21,14 @@ import json
 import logging
 import re
 import time
+import warnings
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+try:
+    from rasterio.errors import NotGeoreferencedWarning
+except ImportError:
+    NotGeoreferencedWarning = UserWarning
 
 import faiss
 import numpy as np
@@ -418,13 +424,15 @@ class CrossModalRetriever:
             # Fallback loading
             try:
                 import rasterio
-                with rasterio.open(input_path) as src:
-                    if src.count >= 2:
-                        vv_raw = src.read(1).astype(np.float32)
-                        vh_raw = src.read(2).astype(np.float32)
-                    else:
-                        vv_raw = src.read(1).astype(np.float32)
-                        vh_raw = vv_raw.copy()
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                    with rasterio.open(input_path) as src:
+                        if src.count >= 2:
+                            vv_raw = src.read(1).astype(np.float32)
+                            vh_raw = src.read(2).astype(np.float32)
+                        else:
+                            vv_raw = src.read(1).astype(np.float32)
+                            vh_raw = vv_raw.copy()
             except Exception:
                 img = Image.open(input_path).convert("L")
                 vv_raw = np.array(img, dtype=np.float32)
@@ -489,12 +497,14 @@ class CrossModalRetriever:
 
             try:
                 import rasterio
-                with rasterio.open(input_path) as src:
-                    if src.count >= 3:
-                        rgb = src.read([1, 2, 3]).astype(np.float32)
-                    else:
-                        single = src.read(1).astype(np.float32)
-                        rgb = np.stack([single, single, single], axis=0)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                    with rasterio.open(input_path) as src:
+                        if src.count >= 3:
+                            rgb = src.read([1, 2, 3]).astype(np.float32)
+                        else:
+                            single = src.read(1).astype(np.float32)
+                            rgb = np.stack([single, single, single], axis=0)
             except Exception:
                 img = Image.open(input_path).convert("RGB")
                 arr = np.array(img, dtype=np.float32).transpose(2, 0, 1)
