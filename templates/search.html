@@ -28,24 +28,68 @@
     </section>
 
     <section class="search-panel section-pad">
-      <form method="post" enctype="multipart/form-data" class="upload-box" action="{{ url_for('search', domain=domain_slug, subcategory=subcategory_slug) }}">
+      <form id="searchForm" method="post" enctype="multipart/form-data" class="upload-box" action="{{ url_for('search', domain=domain_slug, subcategory=subcategory_slug) }}">
+        <input type="hidden" name="sample_key" id="sampleKeyInput" value="">
         <div>
           <span class="kicker">Input query image</span>
           <h2>Upload a scene<br>to search the gallery.</h2>
           <p>Real-time cross-modal retrieval via ResNet-50 Two-Tower network and FAISS inner-product index.</p>
         </div>
-        <label class="file-control">
-          <input type="file" name="image" accept=".tif,.tiff,.png,.jpg,.jpeg" required>
-          <span>Choose TIFF / PNG / JPG</span>
-          <b>+</b>
-        </label>
-        <button class="search-button" type="submit">Retrieve Matching Satellite Scenes <span>↗</span></button>
-        {% if error %}
-          <div class="form-error">⚠️ {{ error }}</div>
-        {% endif %}
-        {% if uploaded_filename %}
-          <div class="uploaded">✓ Processed: {{ uploaded_filename }} {% if latency_info %}({{ latency_info.total_ms }} ms){% endif %}</div>
-        {% endif %}
+
+        <div class="upload-controls-col">
+          <label class="file-control" id="dropArea">
+            <input type="file" id="imageInput" name="image" accept=".tif,.tiff,.png,.jpg,.jpeg">
+            <div class="file-control-body">
+              <span id="filePrompt">Choose TIFF / PNG / JPG</span>
+              <span id="fileDetail" class="file-detail-text">Click to browse or drop satellite scene</span>
+            </div>
+            <b id="fileIcon">+</b>
+          </label>
+
+          <div id="clientPreview" class="client-preview-card" style="display: none;">
+            <img id="previewThumbnail" class="client-preview-img" src="" alt="Query Preview">
+            <div class="client-preview-info">
+              <span class="badge-preview">Selected Image</span>
+              <span id="previewName" class="preview-filename"></span>
+            </div>
+          </div>
+
+          <div class="sample-benchmark-row">
+            <span class="sample-lead">Or test with pre-verified benchmark scene:</span>
+            <div class="sample-buttons">
+              {% if sample_scenes %}
+                {% for key, s in sample_scenes.items() %}
+                <button type="button" class="sample-btn" onclick="submitSample('{{ key }}')" title="Run retrieval with {{ s.name }}">
+                  <span class="sample-pill-badge">{{ s.badge }}</span>
+                  <span class="sample-btn-title">{{ s.name }}</span>
+                </button>
+                {% endfor %}
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+        <div class="upload-action-col">
+          <button class="search-button" id="submitBtn" type="submit">
+            <span id="submitBtnText">Retrieve Matching Satellite Scenes</span>
+            <span id="submitBtnIcon">↗</span>
+          </button>
+          
+          <div id="loadingIndicator" class="loading-state" style="display: none;">
+            <div class="loading-spinner"></div>
+            <div class="loading-text">
+              <strong>Querying 4,500 Scenes</strong>
+              <span>Extracting 512-D L2 embeddings & FAISS search...</span>
+            </div>
+          </div>
+
+          {% if error %}
+            <div class="form-error">⚠️ {{ error }}</div>
+          {% endif %}
+          {% if uploaded_filename %}
+            <div class="uploaded">✓ Processed: {{ uploaded_filename }} {% if latency_info %}({{ latency_info.total_ms }} ms){% endif %}</div>
+          {% endif %}
+        </div>
       </form>
     </section>
 
@@ -64,31 +108,79 @@
         </div>
       </div>
 
-      <div class="results-grid">
-        {% for result in results %}
-        <article class="result-card">
-          <div class="scene scene-{{ result.tone }}">
-            <img src="{{ url_for('patch_image', patch_id=result.patch_id) }}" alt="{{ result.patch_id }}" class="scene-img" loading="lazy" onerror="this.style.display='none'">
-            <span class="scene-badge">{{ result.modality[:3]|upper }} / #{{ '%02d'|format(result.rank) }}</span>
-            <i></i>
+      <div class="retrieval-disclaimer-banner">
+        <span class="disclaimer-badge">ℹ️ Operational Intelligence Notice</span>
+        <p>Rankings reflect 512-D metric embedding proximity across 4,500 reference scenes. The retrieved Corine land-cover labels (e.g. Coniferous forest, Arable land, Pastures) describe physical terrain features and multi-sensor representation correspondence, not automated disaster event detections or damage classifications.</p>
+      </div>
+
+      <div class="retrieval-comparison-layout">
+        <!-- Query Scene Card -->
+        <aside class="query-card-wrapper">
+          <div class="query-card-heading">
+            <span class="kicker">Query Scene</span>
+            <span class="query-badge-modality">{{ query_modality_used or subcategory.modality }}</span>
           </div>
-          <div class="result-meta">
-            <span class="rank">#{{ '%02d'|format(result.rank) }}</span>
-            <strong>{{ result.label }}</strong>
-            <span class="score">{{ result.score }} <small>SIM</small></span>
+          <div class="query-card">
+            <div class="scene scene-query">
+              {% if query_preview_url %}
+              <img src="{{ query_preview_url }}" alt="Query Satellite Scene" class="scene-img" onerror="this.style.display='none'">
+              {% endif %}
+              <span class="scene-badge">QUERY / {{ query_modality_used or subcategory.modality }}</span>
+              <i></i>
+            </div>
+            <div class="query-details">
+              <strong class="query-filename" title="{{ uploaded_filename or 'Input Scene' }}">{{ uploaded_filename or 'Input Scene' }}</strong>
+              <div class="query-spec-list">
+                <span>Vector: 512-D L2-Norm</span>
+                <span>Modality: {{ query_modality_used or subcategory.modality }}</span>
+                {% if latency_info %}
+                <span class="query-timing">Total Latency: {{ latency_info.total_ms }} ms</span>
+                {% endif %}
+              </div>
+            </div>
           </div>
-          <div class="result-sub-meta">
-            <span class="modality-tag modality-{{ result.modality|lower }}">{{ result.modality }}</span>
-            {% if result.country %}
-            <span class="country-tag">📍 {{ result.country }}</span>
+        </aside>
+
+        <!-- Results Grid -->
+        <div class="results-grid">
+          {% for result in results %}
+          <article class="result-card">
+            <div class="scene scene-{{ result.tone }}">
+              <img src="{{ url_for('patch_image', patch_id=result.patch_id, modality=result.modality) }}" alt="{{ result.patch_id }}" class="scene-img" loading="lazy" onerror="this.style.display='none'">
+              <span class="scene-badge">{{ result.modality[:3]|upper }} / #{{ '%02d'|format(result.rank) }}</span>
+              <i></i>
+            </div>
+            <div class="result-meta">
+              <span class="rank">#{{ '%02d'|format(result.rank) }}</span>
+              <strong>{{ result.label }}</strong>
+              {% set sim_val = (result.similarity_score if result.similarity_score is defined else result.score)|float %}
+              <div class="score-container">
+                <div class="score-bar-track">
+                  <div class="score-bar-fill" style="width: {{ [(sim_val * 100)|round(1), 100]|min }}%;"></div>
+                </div>
+                <span class="score">{{ result.score }} <small>SIM</small></span>
+              </div>
+            </div>
+            <div class="result-sub-meta">
+              <span class="modality-tag modality-{{ result.modality|lower }}">{{ result.modality }}</span>
+              {% if result.country %}
+              <span class="country-tag">📍 {{ result.country }}</span>
+              {% endif %}
+              {% if sim_val >= 0.70 %}
+              <span class="match-quality high">Vector Sim: High</span>
+              {% elif sim_val >= 0.40 %}
+              <span class="match-quality medium">Vector Sim: Good</span>
+              {% else %}
+              <span class="match-quality low">Vector Sim: Mod</span>
+              {% endif %}
+            </div>
+            {% if result.provenance %}
+            <div class="provenance-tag">{{ result.provenance }}</div>
             {% endif %}
-          </div>
-          {% if result.provenance %}
-          <div class="provenance-tag">{{ result.provenance }}</div>
-          {% endif %}
-          <code>{{ result.patch_id }}</code>
-        </article>
-        {% endfor %}
+            <code title="{{ result.patch_id }}">{{ result.patch_id }}</code>
+          </article>
+          {% endfor %}
+        </div>
       </div>
     </section>
     {% endif %}
@@ -98,5 +190,85 @@
       <span>ATLAS REMOTE SENSING RETRIEVAL SYSTEM</span>
     </footer>
   </main>
+
+  <script>
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    const fileInput = document.getElementById('imageInput');
+    const filePrompt = document.getElementById('filePrompt');
+    const fileDetail = document.getElementById('fileDetail');
+    const clientPreview = document.getElementById('clientPreview');
+    const previewThumbnail = document.getElementById('previewThumbnail');
+    const previewName = document.getElementById('previewName');
+    const searchForm = document.getElementById('searchForm');
+    const submitBtn = document.getElementById('submitBtn');
+    const submitBtnText = document.getElementById('submitBtnText');
+    const loadingIndicator = document.getElementById('loadingIndicator');
+    const sampleKeyInput = document.getElementById('sampleKeyInput');
+
+    if (fileInput) {
+      fileInput.addEventListener('change', function() {
+        const file = this.files[0];
+        if (file) {
+          sampleKeyInput.value = '';
+          filePrompt.textContent = file.name;
+          fileDetail.textContent = formatBytes(file.size) + ' • Ready to analyze';
+          previewName.textContent = file.name + ' (' + formatBytes(file.size) + ')';
+          
+          const ext = file.name.split('.').pop().toLowerCase();
+          if (['png', 'jpg', 'jpeg'].includes(ext)) {
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+              previewThumbnail.src = evt.target.result;
+              previewThumbnail.style.display = 'block';
+              clientPreview.style.display = 'flex';
+            };
+            reader.readAsDataURL(file);
+          } else {
+            previewThumbnail.style.display = 'none';
+            clientPreview.style.display = 'flex';
+          }
+        }
+      });
+    }
+
+    function submitSample(key) {
+      if (sampleKeyInput && searchForm) {
+        sampleKeyInput.value = key;
+        if (fileInput) {
+          fileInput.removeAttribute('required');
+        }
+        showLoadingState();
+        searchForm.submit();
+      }
+    }
+
+    function showLoadingState() {
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtnText.textContent = 'Querying FAISS Gallery...';
+      }
+      if (loadingIndicator) {
+        loadingIndicator.style.display = 'flex';
+      }
+    }
+
+    if (searchForm) {
+      searchForm.addEventListener('submit', function(e) {
+        if (!sampleKeyInput.value && (!fileInput.files || fileInput.files.length === 0)) {
+          e.preventDefault();
+          alert('Please choose a satellite image file or click one of the benchmark scenes below.');
+          return;
+        }
+        showLoadingState();
+      });
+    }
+  </script>
 </body>
 </html>

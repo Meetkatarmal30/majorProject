@@ -119,6 +119,19 @@ def main() -> None:
         if "provenance" in top_r:
             print(f"  Provenance         : {top_r['provenance']}")
 
+        # Semantic retrieval correctness assertions
+        if sub_slug == "flood":
+            gt_id = "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66"
+            retrieved_ids = [r["patch_id"] for r in results]
+            assert gt_id in retrieved_ids, f"Correctness Error: Ground-truth paired scene {gt_id} missing from Top-10!"
+            gt_rank = retrieved_ids.index(gt_id) + 1
+            print(f"  [CORRECTNESS] Ground-truth paired MS scene '{gt_id}' verified at Rank #{gt_rank}")
+
+        if sub_slug == "crop-mapping":
+            assert results[0]["patch_id"] == "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66"
+            assert np.isclose(results[0]["similarity_score"], 1.0, atol=1e-3)
+            print(f"  [CORRECTNESS] Unimodal self-match verified at Rank #1 with score {results[0]['similarity_score']:.4f}")
+
         record = {
             "domain": domain_slug,
             "subcategory": sub_slug,
@@ -199,28 +212,39 @@ def main() -> None:
     assert b"SAR" in resp.data
     print("  [PASS] GET /search shows recommended modality.")
 
-    # 5. Search page (POST real image upload)
+    # 5. Search page (POST real image upload & sample benchmark query)
     print("\n[Flask 5/7] Testing POST /search with Real SAR Satellite Image...")
-    # Create test image bytes (PNG dummy or GeoTIFF)
-    # Generate a realistic 224x224 PNG to test upload pipeline
-    test_img = Image.new("RGB", (224, 224), color=(60, 80, 70))
-    img_bytes = io.BytesIO()
-    test_img.save(img_bytes, format="PNG")
-    img_bytes.seek(0)
+    real_sar_vv = s1_patch / "S1B_IW_GRDH_1SDV_20170612T165809_33UUP_39_66_VV.tif"
+    with open(real_sar_vv, "rb") as f:
+        img_bytes = f.read()
 
     post_resp = client.post(
         "/search?domain=disaster-response&subcategory=flood",
-        data={"image": (img_bytes, "test_flood_query.png")},
+        data={"image": (io.BytesIO(img_bytes), real_sar_vv.name)},
         content_type="multipart/form-data",
     )
     assert post_resp.status_code == 200
     assert b"TOP-10 RETRIEVED SCENES" in post_resp.data
-    assert b"test_flood_query.png" in post_resp.data
+    assert real_sar_vv.name.encode() in post_resp.data
     assert b"Nearest scenes." in post_resp.data
-    print("  [PASS] POST /search executes real retrieval and displays Top-10 results.")
+    # Assert expected top match for single VV input
+    assert b"S2B_MSIL2A_20170817T101019_N9999_R022_T34WFS_53_29" in post_resp.data
+    print("  [PASS] POST /search executes real retrieval on single-file GeoTIFF upload.")
+
+    # Test 1-click sample scene execution with full multi-channel partner bands
+    resp_sample = client.post(
+        "/search?domain=disaster-response&subcategory=flood",
+        data={"sample_key": "flood_sar"},
+    )
+    assert resp_sample.status_code == 200
+    gt_paired_ms = b"S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66"
+    assert gt_paired_ms in resp_sample.data, f"Ground-truth paired scene {gt_paired_ms.decode()} missing from sample retrieval output!"
+    assert b"S2A_MSIL2A_20170617T113321_N9999_R080_T29UPU_42_63" in resp_sample.data
+    print("  [PASS] 1-Click sample benchmark retrieval verified with ground-truth paired scene.")
 
     # 6. Post Hybrid search (Deforestation)
     print("\n[Flask 6/7] Testing POST /search for Hybrid Subcategory (Deforestation)...")
+    test_img = Image.new("RGB", (224, 224), color=(60, 80, 70))
     img_bytes2 = io.BytesIO()
     test_img.save(img_bytes2, format="PNG")
     img_bytes2.seek(0)

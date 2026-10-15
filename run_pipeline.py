@@ -35,6 +35,7 @@ if _parent_dir not in sys.path:
 from config.settings import (
     DATA_DIR,
     BASE_DIR,
+    IMAGE_SIZE,
     VV_BAND_SUFFIX,
     VH_BAND_SUFFIX,
     setup_logging,
@@ -80,7 +81,8 @@ def run_preprocessing() -> bool:
         vh_path=vh_path,
         norm_mode="min-max"
     )
-    return tensor.shape == (2, 120, 120) and tensor.dtype == torch.float32
+    expected_shape = (2, IMAGE_SIZE[0], IMAGE_SIZE[1])
+    return tensor.shape == expected_shape and tensor.dtype == torch.float32
 
 
 def run_statistics() -> bool:
@@ -127,7 +129,8 @@ def run_dataset_class() -> bool:
     from dataset.dataset import BigEarthNetS1Dataset
     dataset = BigEarthNetS1Dataset(split="train")
     tensor, name = dataset[0]
-    return len(dataset) > 0 and tensor.shape == (2, 120, 120)
+    expected_shape = (2, IMAGE_SIZE[0], IMAGE_SIZE[1])
+    return len(dataset) > 0 and tensor.shape == expected_shape
 
 
 def run_dataloader() -> bool:
@@ -135,7 +138,8 @@ def run_dataloader() -> bool:
     from dataset.dataloader import create_dataloaders
     train_loader, _, _ = create_dataloaders(batch_size=16, num_workers=2)
     images, names = next(iter(train_loader))
-    return images.shape == (16, 2, 120, 120) and len(names) == 16
+    expected_batch_shape = (16, 2, IMAGE_SIZE[0], IMAGE_SIZE[1])
+    return images.shape == expected_batch_shape and len(names) == 16
 
 
 def run_unit_tests() -> bool:
@@ -175,7 +179,7 @@ def run_timing() -> bool:
     class PlaceholderModel(nn.Module):
         def __init__(self):
             super().__init__()
-            self.linear = nn.Linear(2 * 120 * 120, 32)
+            self.linear = nn.Linear(2 * IMAGE_SIZE[0] * IMAGE_SIZE[1], 32)
         def forward(self, x):
             return self.linear(x.flatten(1))
             
@@ -184,7 +188,7 @@ def run_timing() -> bool:
     # Dummy dataset
     class DummyDS(torch.utils.data.Dataset):
         def __len__(self): return 50
-        def __getitem__(self, idx): return torch.randn(2, 120, 120), f"p_{idx}"
+        def __getitem__(self, idx): return torch.randn(2, IMAGE_SIZE[0], IMAGE_SIZE[1]), f"p_{idx}"
         
     loader = DataLoader(DummyDS(), batch_size=10)
     

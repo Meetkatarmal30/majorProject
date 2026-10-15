@@ -1,20 +1,30 @@
 """
-Week 5 - Extract trained test embeddings.
+scripts/extract_test_embeddings.py - [DEPRECATED / REFERENCE ONLY]
 
-Loads the best Week 4 checkpoint and generates 512-D embeddings
-for all 4,500 test SAR/MS pairs.
+NOTE: This script is preserved for historical documentation of the original
+embedding extraction workflow. In the operational retrieval system, the
+authoritative 4,500 L2-normalized test embeddings are precomputed and located in:
+    - teammate_inputs/trained_test_sar_embeddings.npy (or outputs/embeddings/)
+    - teammate_inputs/trained_test_ms_embeddings.npy (or outputs/embeddings/)
+To build or rebuild FAISS indices from these embeddings, run:
+    python scripts/build_faiss_indices.py
 """
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-import lightning as L
+# Add project root to path
+BASE_DIR = Path(__file__).resolve().parent.parent
+if str(BASE_DIR) not in sys.path:
+    sys.path.insert(0, str(BASE_DIR))
+
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
 
-from src.data.paired_dataset import PairedBigEarthNetDataset
+from dataset.dataset import PairedBigEarthNetDataset
 from src.models.two_tower import TwoTowerNetwork
 
 
@@ -22,21 +32,31 @@ from src.models.two_tower import TwoTowerNetwork
 # PATHS
 # ============================================================
 
-TEST_CSV = Path("outputs/metadata/test_split.csv")
-
-S1_ROOT = Path(
-    r"C:\BigEarthNet-S1-Required\BigEarthNet-S1-Required"
+TEST_CSV = (
+    BASE_DIR / "teammate_inputs" / "test_split.csv"
+    if (BASE_DIR / "teammate_inputs" / "test_split.csv").exists()
+    else BASE_DIR / "outputs" / "metadata" / "test_split.csv"
 )
 
-S2_ROOT = Path(
-    r"C:\BigEarthNet-S2-Required"
+S1_ROOT = (
+    BASE_DIR / "teammate_inputs" / "BigEarthNet-S1-Required"
+    if (BASE_DIR / "teammate_inputs" / "BigEarthNet-S1-Required").exists()
+    else BASE_DIR / "data" / "BigEarthNet-S1"
 )
 
-CHECKPOINT_PATH = Path(
-    "outputs/checkpoints/best_model-v1.ckpt"
+S2_ROOT = (
+    BASE_DIR / "teammate_inputs" / "BigEarthNet-S2-Required"
+    if (BASE_DIR / "teammate_inputs" / "BigEarthNet-S2-Required").exists()
+    else BASE_DIR / "data" / "BigEarthNet-S2"
 )
 
-OUTPUT_DIR = Path("outputs/embeddings")
+CHECKPOINT_PATH = (
+    BASE_DIR / "models" / "best_model-v1.ckpt"
+    if (BASE_DIR / "models" / "best_model-v1.ckpt").exists()
+    else BASE_DIR / "outputs" / "checkpoints" / "best_model-v1.ckpt"
+)
+
+OUTPUT_DIR = BASE_DIR / "outputs" / "embeddings"
 
 SAR_OUTPUT = OUTPUT_DIR / "trained_test_sar_embeddings.npy"
 MS_OUTPUT = OUTPUT_DIR / "trained_test_ms_embeddings.npy"
