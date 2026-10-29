@@ -37,6 +37,16 @@
         </div>
 
         <div class="upload-controls-col">
+          <div class="modality-select-group" style="margin-bottom: 0.85rem;">
+            <label for="modalitySelect" class="rec-label" style="display: block; margin-bottom: 0.35rem; font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em;">Query Modality</label>
+            <select name="modality" id="modalitySelect" class="form-select form-select-sm" style="background: rgba(16, 21, 26, 0.85); color: var(--fog); border: 1px solid rgba(215, 226, 234, 0.2); border-radius: 6px; padding: 0.45rem 0.65rem; font-size: 0.82rem; font-family: inherit;">
+              <option value="auto" {% if not selected_modality or selected_modality == 'auto' %}selected{% endif %}>Auto-detect (Recommended: {{ subcategory.modality }})</option>
+              <option value="Multispectral" {% if selected_modality in ['MS', 'Multispectral', 'SENTINEL-2'] %}selected{% endif %}>Multispectral (Sentinel-2 Optical RGB)</option>
+              <option value="SAR" {% if selected_modality in ['SAR', 'S1', 'SENTINEL-1'] %}selected{% endif %}>SAR (Sentinel-1 Radar VV+VH)</option>
+              <option value="Hybrid" {% if selected_modality in ['Hybrid', 'DUAL'] %}selected{% endif %}>Hybrid (Dual-Gallery Cross + Unimodal)</option>
+            </select>
+          </div>
+
           <label class="file-control" id="dropArea">
             <input type="file" id="imageInput" name="image" accept=".tif,.tiff,.png,.jpg,.jpeg">
             <div class="file-control-body">
@@ -244,6 +254,16 @@
           fileDetail.textContent = formatBytes(file.size) + ' • Ready to analyze';
           previewName.textContent = file.name + ' (' + formatBytes(file.size) + ')';
           
+          const upperName = file.name.toUpperCase();
+          const modSelect = document.getElementById('modalitySelect');
+          if (modSelect && modSelect.value === 'auto') {
+            if (upperName.includes('_VV') || upperName.includes('_VH') || upperName.includes('S1')) {
+              modSelect.value = 'SAR';
+            } else if (upperName.includes('_B0') || upperName.includes('_B8') || upperName.includes('S2')) {
+              modSelect.value = 'Multispectral';
+            }
+          }
+
           const ext = file.name.split('.').pop().toLowerCase();
           if (['png', 'jpg', 'jpeg'].includes(ext)) {
             const reader = new FileReader();

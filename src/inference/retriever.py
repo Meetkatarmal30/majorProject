@@ -552,6 +552,101 @@ class CrossModalRetriever:
         return None
 
     # --------------------------------------------------------
+    # GENUINE MULTI-CHANNEL PARTNER RESOLVERS (NO FAKE CHANNELS)
+    # --------------------------------------------------------
+
+    def resolve_s1_partner_band(self, input_path: Path) -> Optional[Tuple[Path, Path]]:
+        """
+        Attempts to resolve genuine VV and VH band files for a Sentinel-1 patch.
+        Returns:
+            Tuple[vv_path, vh_path] if both genuine polarizations exist, or None.
+        Never duplicates channels or returns fake partners.
+        """
+        self._ensure_patch_cache()
+        name = input_path.name
+        parent = input_path.parent
+
+        # 1. Check immediate parent directory
+        if "_VV" in name:
+            vh_candidate = parent / name.replace("_VV", "_VH")
+            if vh_candidate.exists():
+                return input_path, vh_candidate
+        elif "_VH" in name:
+            vv_candidate = parent / name.replace("_VH", "_VV")
+            if vv_candidate.exists():
+                return vv_candidate, input_path
+
+        # 2. Extract base patch name and check local S1 patch cache
+        clean_name = re.sub(r"^\d+_", "", name)
+        base_patch = re.sub(r"_(VV|VH)\.tiff?$", "", clean_name, flags=re.IGNORECASE)
+
+        candidates = [base_patch, clean_name]
+        meta = self.get_metadata(base_patch)
+        if meta and meta.get("s1_name"):
+            candidates.append(meta["s1_name"])
+
+        for cand in candidates:
+            if cand in self._local_s1_patches:
+                patch_dir = self._local_s1_patches[cand]
+                vv_files = sorted(patch_dir.glob("*_VV.tif")) + sorted(patch_dir.glob("*_VV.tiff"))
+                vh_files = sorted(patch_dir.glob("*_VH.tif")) + sorted(patch_dir.glob("*_VH.tiff"))
+                if vv_files and vh_files:
+                    return vv_files[0], vh_files[0]
+
+        return None
+
+    def resolve_s2_rgb_bands(self, input_path: Path) -> Optional[Tuple[Path, Path, Path]]:
+        """
+        Attempts to resolve genuine B04 (Red), B03 (Green), and B02 (Blue) band files.
+        Returns:
+            Tuple[b04_path, b03_path, b02_path] if all 3 genuine RGB bands exist, or None.
+        Never fabricates spectral bands or duplicates channels.
+        """
+        self._ensure_patch_cache()
+        name = input_path.name
+        parent = input_path.parent
+
+        # Recognize RGB bands only
+        matched_band = None
+        for b in ("_B04", "_B03", "_B02"):
+            if b in name:
+                matched_band = b
+                break
+
+        if matched_band is None:
+            return None
+
+        # 1. Check immediate parent directory
+        b4_candidate = parent / re.sub(r"_B0[234]", "_B04", name)
+        b3_candidate = parent / re.sub(r"_B0[234]", "_B03", name)
+        b2_candidate = parent / re.sub(r"_B0[234]", "_B02", name)
+        if b4_candidate.exists() and b3_candidate.exists() and b2_candidate.exists():
+            return b4_candidate, b3_candidate, b2_candidate
+
+        # 2. Extract base patch name and check local S2 patch cache
+        clean_name = re.sub(r"^\d+_", "", name)
+        base_patch = re.sub(r"_B0[234]\.tiff?$", "", clean_name, flags=re.IGNORECASE)
+
+        candidates = [base_patch, clean_name]
+        meta = self.get_metadata(base_patch)
+        if meta:
+            if meta.get("patch_id"):
+                candidates.append(meta["patch_id"])
+            if meta.get("s2v1_name"):
+                candidates.append(meta["s2v1_name"])
+
+        for cand in candidates:
+            if cand in self._local_s2_patches:
+                patch_dir = self._local_s2_patches[cand]
+                b4_files = sorted(patch_dir.glob("*_B04.tif")) + sorted(patch_dir.glob("*_B04.tiff"))
+                b3_files = sorted(patch_dir.glob("*_B03.tif")) + sorted(patch_dir.glob("*_B03.tiff"))
+                b2_files = sorted(patch_dir.glob("*_B02.tif")) + sorted(patch_dir.glob("*_B02.tiff"))
+                if b4_files and b3_files and b2_files:
+                    return b4_files[0], b3_files[0], b2_files[0]
+
+        return None
+
+    # --------------------------------------------------------
     # PREPROCESSING METHODS
     # --------------------------------------------------------
 
@@ -559,9 +654,11 @@ class CrossModalRetriever:
         """
         Preprocess SAR query input to a (1, 2, 224, 224) Float32 PyTorch tensor.
         Handles:
-        - Path to folder containing VV and VH GeoTIFFs
-        - Path to single GeoTIFF / image file (with auto-partner band resolution or multi-channel read)
-        - Direct torch.Tensor or numpy.ndarray
+        - Direct torch.Tensor or numpy.ndarray of shape (1, 2, 224, 224)
+        - Path to folder containing genuine VV and VH GeoTIFFs
+        - Path to 2-channel GeoTIFF (band 1 = VV, band 2 = VH)
+        - Path to single-band GeoTIFF with resolved genuine partner polarization
+        Strictly rejects 1-channel SAR input when companion polarization is missing (no fake duplication).
         """
         if isinstance(query_input, torch.Tensor):
             t = query_input.float()
@@ -584,8 +681,8 @@ class CrossModalRetriever:
 
         # Directory containing bands
         if input_path.is_dir():
-            vv_files = list(input_path.glob("*_VV.tif")) + list(input_path.glob("*VV*.tif"))
-            vh_files = list(input_path.glob("*_VH.tif")) + list(input_path.glob("*VH*.tif"))
+            vv_files = sorted(input_path.glob("*_VV.tif")) + sorted(input_path.glob("*_VV.tiff"))
+            vh_files = sorted(input_path.glob("*_VH.tif")) + sorted(input_path.glob("*_VH.tiff"))
             if not vv_files or not vh_files:
                 raise FileNotFoundError(f"Directory {input_path} missing VV or VH GeoTIFFs.")
             tensor = preprocess_sar_patch(vv_files[0], vh_files[0])
@@ -593,20 +690,14 @@ class CrossModalRetriever:
 
         # Single file
         if input_path.is_file():
-            name = input_path.name
-            parent = input_path.parent
-            if "_VV" in name:
-                partner_name = name.replace("_VV", "_VH")
-                if (parent / partner_name).exists():
-                    tensor = preprocess_sar_patch(input_path, parent / partner_name)
-                    return tensor.unsqueeze(0).to(self.device)
-            elif "_VH" in name:
-                partner_name = name.replace("_VH", "_VV")
-                if (parent / partner_name).exists():
-                    tensor = preprocess_sar_patch(parent / partner_name, input_path)
-                    return tensor.unsqueeze(0).to(self.device)
+            # 1. Try to resolve genuine partner polarization band
+            resolved = self.resolve_s1_partner_band(input_path)
+            if resolved is not None:
+                vv_file, vh_file = resolved
+                tensor = preprocess_sar_patch(vv_file, vh_file)
+                return tensor.unsqueeze(0).to(self.device)
 
-            # Fallback loading
+            # 2. Check if the file is a multi-band GeoTIFF (>= 2 channels)
             try:
                 import rasterio
                 with warnings.catch_warnings():
@@ -615,26 +706,43 @@ class CrossModalRetriever:
                         if src.count >= 2:
                             vv_raw = src.read(1).astype(np.float32)
                             vh_raw = src.read(2).astype(np.float32)
-                        else:
-                            vv_raw = src.read(1).astype(np.float32)
-                            vh_raw = vv_raw.copy()
-            except Exception:
-                img = Image.open(input_path).convert("L")
-                vv_raw = np.array(img, dtype=np.float32)
-                vh_raw = vv_raw.copy()
 
-            vv_clipped = clip_sar_band(vv_raw, (-25.0, 0.0))
-            vh_clipped = clip_sar_band(vh_raw, (-25.0, 0.0))
+                            vv_clipped = clip_sar_band(vv_raw, (-25.0, 0.0))
+                            vh_clipped = clip_sar_band(vh_raw, (-25.0, 0.0))
 
-            vv_norm = normalize_sar_band(vv_clipped, (-25.0, 0.0), "z-score", self.s1_stats["VV"])
-            vh_norm = normalize_sar_band(vh_clipped, (-25.0, 0.0), "z-score", self.s1_stats["VH"])
+                            vv_norm = normalize_sar_band(vv_clipped, (-25.0, 0.0), "z-score", self.s1_stats["VV"])
+                            vh_norm = normalize_sar_band(vh_clipped, (-25.0, 0.0), "z-score", self.s1_stats["VH"])
 
-            vv_final = resize_sar_band(vv_norm, (224, 224))
-            vh_final = resize_sar_band(vh_norm, (224, 224))
+                            vv_final = resize_sar_band(vv_norm, (224, 224))
+                            vh_final = resize_sar_band(vh_norm, (224, 224))
 
-            stacked = np.stack([vv_final, vh_final], axis=0).astype(np.float32)
-            tensor = torch.from_numpy(stacked).unsqueeze(0).to(self.device)
-            return tensor
+                            stacked = np.stack([vv_final, vh_final], axis=0).astype(np.float32)
+                            return torch.from_numpy(stacked).unsqueeze(0).to(self.device)
+            except Exception as e:
+                logger.debug(f"Could not open {input_path} as multi-channel rasterio file: {e}")
+
+            # 3. If single channel and cannot resolve partner: REJECT (do not duplicate!)
+            name = input_path.name
+            if "_VV" in name.upper():
+                raise ValueError(
+                    f"Sentinel-1 SAR retrieval requires both VV and VH polarization bands. "
+                    f"The uploaded file '{name}' contains only the VV band, and companion polarization 'VH' "
+                    "could not be resolved from the local dataset. Channel duplication is scientifically invalid. "
+                    "Please upload a 2-channel GeoTIFF (VV+VH) or a Sentinel-1 patch with both polarization bands."
+                )
+            elif "_VH" in name.upper():
+                raise ValueError(
+                    f"Sentinel-1 SAR retrieval requires both VV and VH polarization bands. "
+                    f"The uploaded file '{name}' contains only the VH band, and companion polarization 'VV' "
+                    "could not be resolved from the local dataset. Channel duplication is scientifically invalid. "
+                    "Please upload a 2-channel GeoTIFF (VV+VH) or a Sentinel-1 patch with both polarization bands."
+                )
+
+            raise ValueError(
+                f"Sentinel-1 SAR retrieval requires a 2-channel input (VV and VH polarizations). "
+                f"The uploaded file '{name}' contains only 1 channel and genuine partner polarizations could not be resolved. "
+                "Channel duplication is scientifically invalid. Please upload a 2-channel GeoTIFF (VV+VH) or a Sentinel-1 patch folder."
+            )
 
         raise ValueError(f"Unsupported SAR input: {query_input}")
 
@@ -642,9 +750,11 @@ class CrossModalRetriever:
         """
         Preprocess Multispectral query input to a (1, 3, 224, 224) Float32 PyTorch tensor.
         Handles:
-        - Path to patch folder containing B04, B03, B02 GeoTIFFs
-        - Path to single RGB image file (TIFF, PNG, JPG)
-        - Direct torch.Tensor or numpy.ndarray
+        - Direct torch.Tensor or numpy.ndarray of shape (1, 3, 224, 224)
+        - Path to patch folder containing genuine B04, B03, B02 GeoTIFFs
+        - Path to 3-channel RGB image (GeoTIFF, PNG, JPG)
+        - Path to single-band RGB GeoTIFF (B04/B03/B02) with resolved genuine partner bands
+        Strictly rejects single non-RGB bands (e.g. B05) or missing RGB partners (no fake channel triplication).
         """
         if isinstance(query_input, torch.Tensor):
             t = query_input.float()
@@ -673,18 +783,24 @@ class CrossModalRetriever:
         # Single file
         if input_path.is_file():
             name = input_path.name
-            parent = input_path.parent
-            b04_file, b03_file, b02_file = None, None, None
-            for band in ("_B04", "_B03", "_B02"):
-                if band in name:
-                    b4 = parent / name.replace(band, "_B04")
-                    b3 = parent / name.replace(band, "_B03")
-                    b2 = parent / name.replace(band, "_B02")
-                    if b4.exists() and b3.exists() and b2.exists():
-                        b04_file, b03_file, b02_file = b4, b3, b2
-                        break
+            clean_name = re.sub(r"^\d+_", "", name)
 
-            if b04_file and b03_file and b02_file:
+            # Check for non-RGB spectral bands (e.g. B05, B06, B07, B08, B8A, B01, etc.)
+            band_match = re.search(r"_(B\w+)\.tiff?$", clean_name, re.IGNORECASE)
+            if band_match:
+                band_name = band_match.group(1).upper()
+                if band_name not in ("B04", "B03", "B02", "B4", "B3", "B2"):
+                    raise ValueError(
+                        f"The uploaded file '{name}' is a single spectral band ({band_name} - not an RGB band). "
+                        "The Multispectral model was trained on 3-channel RGB imagery (B04: Red, B03: Green, B02: Blue). "
+                        f"Single-band '{band_name}' cannot be triplicated to fabricate RGB channels. "
+                        "Please upload a 3-channel RGB composite or a Sentinel-2 RGB band (B04/B03/B02) with accessible partner bands."
+                    )
+
+            # 1. Try resolving genuine partner RGB bands (if uploaded file is B04, B03, or B02)
+            resolved = self.resolve_s2_rgb_bands(input_path)
+            if resolved is not None:
+                b04_file, b03_file, b02_file = resolved
                 import rasterio
                 with warnings.catch_warnings():
                     warnings.simplefilter("ignore", NotGeoreferencedWarning)
@@ -698,6 +814,7 @@ class CrossModalRetriever:
                 tensor = torch.from_numpy(normalized).type(torch.float32).unsqueeze(0).to(self.device)
                 return tensor
 
+            # 2. Check if file is already a 3-channel image (GeoTIFF with >= 3 bands, or PNG/JPG)
             try:
                 import rasterio
                 with warnings.catch_warnings():
@@ -705,18 +822,46 @@ class CrossModalRetriever:
                     with rasterio.open(input_path) as src:
                         if src.count >= 3:
                             rgb = src.read([1, 2, 3]).astype(np.float32)
+                            resized = resize_s2_image(rgb, target_size=(224, 224))
+                            normalized = normalize_s2_image(resized, mean=self.s2_mean, std=self.s2_std)
+                            tensor = torch.from_numpy(normalized).type(torch.float32).unsqueeze(0).to(self.device)
+                            return tensor
                         else:
-                            single = src.read(1).astype(np.float32)
-                            rgb = np.stack([single, single, single], axis=0)
-            except Exception:
-                img = Image.open(input_path).convert("RGB")
-                arr = np.array(img, dtype=np.float32).transpose(2, 0, 1)
-                rgb = arr
-
-            resized = resize_s2_image(rgb, target_size=(224, 224))
-            normalized = normalize_s2_image(resized, mean=self.s2_mean, std=self.s2_std)
-            tensor = torch.from_numpy(normalized).type(torch.float32).unsqueeze(0).to(self.device)
-            return tensor
+                            # Single band GeoTIFF where partner bands could not be resolved!
+                            if band_match:
+                                b_id = band_match.group(1).upper()
+                                raise ValueError(
+                                    f"The uploaded file '{name}' is a single-band file ({b_id}) and genuine RGB partner bands "
+                                    "(B04, B03, B02) could not be resolved from the local dataset. "
+                                    "Multispectral retrieval requires 3 channels (B04: Red, B03: Green, B02: Blue). "
+                                    "Please upload a 3-channel RGB image or a known dataset patch with all RGB bands."
+                                )
+                            raise ValueError(
+                                f"The uploaded file '{name}' contains only {src.count} channel(s). "
+                                "Multispectral retrieval requires 3-channel RGB (B04: Red, B03: Green, B02: Blue). "
+                                "Channel triplication is not permitted."
+                            )
+            except Exception as e:
+                if isinstance(e, ValueError):
+                    raise e
+                # Fallback to PIL for PNG / JPG images
+                try:
+                    img = Image.open(input_path)
+                    if img.mode in ("RGB", "RGBA"):
+                        arr = np.array(img.convert("RGB"), dtype=np.float32).transpose(2, 0, 1)
+                        resized = resize_s2_image(arr, target_size=(224, 224))
+                        normalized = normalize_s2_image(resized, mean=self.s2_mean, std=self.s2_std)
+                        tensor = torch.from_numpy(normalized).type(torch.float32).unsqueeze(0).to(self.device)
+                        return tensor
+                    else:
+                        raise ValueError(
+                            f"The uploaded image '{name}' has mode '{img.mode}'. "
+                            "Multispectral retrieval requires 3-channel RGB imagery."
+                        )
+                except Exception as img_err:
+                    if isinstance(img_err, ValueError):
+                        raise img_err
+                    raise ValueError(f"Could not decode Multispectral image '{name}': {img_err}")
 
         raise ValueError(f"Unsupported MS input: {query_input}")
 
@@ -804,6 +949,13 @@ class CrossModalRetriever:
             return []
 
         scores, indices = index.search(query_embedding, actual_k)
+
+        faiss_start = time.perf_counter()
+        scores, indices = index.search(query_embedding, actual_k)
+        faiss_ms = (time.perf_counter() - faiss_start) * 1000.0
+
+
+
 
         results: List[Dict[str, Any]] = []
         for rank, (score, idx) in enumerate(zip(scores[0], indices[0]), start=1):

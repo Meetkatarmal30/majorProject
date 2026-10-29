@@ -222,6 +222,7 @@ def search():
     uploaded_filename: Optional[str] = None
     query_preview_url: Optional[str] = None
     query_modality_used: Optional[str] = None
+    selected_modality: Optional[str] = request.form.get("modality") or request.args.get("modality") or "auto"
     error: Optional[str] = None
     results = None
     latency_info = None
@@ -232,8 +233,10 @@ def search():
 
         sample_key = request.form.get("sample_key") or request.args.get("sample_key")
         uploaded_file = request.files.get("image") if request.method == "POST" else None
+        form_modality = (request.form.get("modality") or "").strip()
         saved_path: Optional[Path] = None
         sample_modality: Optional[str] = None
+        raw_filename: Optional[str] = None
 
         if sample_key:
             if sample_key not in SAMPLE_SCENES:
@@ -316,24 +319,65 @@ def search():
 
         if saved_path and not error:
             try:
-                # Resolve query modality:
-                # If sample selected, strictly respect declared modality;
-                # for uploaded images, preserve subcategory's configured modality.
+                # ------------------------------------------------------------
+                # RESOLVE QUERY MODALITY (NO SILENT OVERRIDES OR MISROUTING)
+                # ------------------------------------------------------------
                 if sample_modality:
                     mod_to_use = sample_modality
                 else:
-                    mod_to_use = subcategory.get("modality", "SAR")
+                    user_mod = None
+                    if form_modality:
+                        clean_m = form_modality.strip().upper()
+                        if clean_m in ("SAR", "S1", "SENTINEL-1"):
+                            user_mod = "SAR"
+                        elif clean_m in ("MS", "MULTISPECTRAL", "S2", "SENTINEL-2"):
+                            user_mod = "MS"
+                        elif clean_m in ("HYBRID", "DUAL"):
+                            user_mod = "Hybrid"
+
+                    fname_upper = (raw_filename or saved_path.name).upper()
+                    is_sar_filename = any(s in fname_upper for s in ("_VV", "_VH", "S1A_", "S1B_", "GRDH"))
+                    is_ms_filename = any(s in fname_upper for s in ("_B0", "_B8", "_B1", "S2A_", "S2B_", "MSIL2A"))
+
+                    # Ambiguity & Contradiction Validation
+                    if user_mod == "SAR" and is_ms_filename and not is_sar_filename:
+                        raise ValueError(
+                            f"Modality conflict: You selected SAR modality, but the uploaded file '{raw_filename}' "
+                            "appears to be a Sentinel-2 Multispectral scene. Please select Multispectral or upload a Sentinel-1 SAR image."
+                        )
+                    elif user_mod == "MS" and is_sar_filename and not is_ms_filename:
+                        raise ValueError(
+                            f"Modality conflict: You selected Multispectral modality, but the uploaded file '{raw_filename}' "
+                            "appears to be a Sentinel-1 SAR scene. Please select SAR or upload a Sentinel-2 optical image."
+                        )
+
+                    if user_mod is not None:
+                        mod_to_use = user_mod
+                    elif is_sar_filename:
+                        mod_to_use = "SAR"
+                    elif is_ms_filename:
+                        mod_to_use = "MS"
+                    else:
+                        subcat_mod = subcategory.get("modality", "SAR")
+                        if subcat_mod.upper() in ("MS", "MULTISPECTRAL"):
+                            mod_to_use = "MS"
+                        elif subcat_mod.upper() == "HYBRID":
+                            mod_to_use = "Hybrid"
+                        else:
+                            mod_to_use = "SAR"
 
                 if mod_to_use.upper() == "SAR":
                     query_mod = "SAR"
+                    query_modality_used = "SAR"
                 elif mod_to_use.upper() in ("MS", "MULTISPECTRAL"):
                     query_mod = "MS"
+                    query_modality_used = "Multispectral"
                 elif mod_to_use.upper() == "HYBRID":
                     query_mod = "Hybrid"
+                    query_modality_used = "Hybrid"
                 else:
                     query_mod = "SAR"
-
-                query_modality_used = query_mod
+                    query_modality_used = "SAR"
 
                 logger.info(
                     f"Executing retrieval: domain='{domain_slug}', "
@@ -362,6 +406,9 @@ def search():
                 results = raw_results
                 logger.info(f"Retrieval complete: {len(results)} results in {total_ms:.2f} ms")
 
+            except (ValueError, FileNotFoundError) as ve:
+                logger.warning(f"Validation notice during retrieval: {ve}")
+                error = str(ve)
             except Exception as e:
                 logger.error(f"Error during retrieval: {e}", exc_info=True)
                 error = f"Retrieval failed: {str(e)}"
@@ -375,6 +422,7 @@ def search():
         uploaded_filename=uploaded_filename,
         query_preview_url=query_preview_url,
         query_modality_used=query_modality_used,
+        selected_modality=selected_modality,
         results=results,
         latency_info=latency_info,
         error=error,
@@ -411,22 +459,23 @@ def query_image(filename: str):
                     nodata = src.nodata
                     if count >= 3:
                         rgb = src.read([1, 2, 3]).astype(np.float32).transpose(1, 2, 0)
+                    elif count == 2:
+                        # 2-channel SAR: render band 1 (VV)
+                        band = src.read(1).astype(np.float32)
                     else:
-                        # Check if companion bands exist in UPLOAD_DIR for S2
-                        b04_f, b03_f, b02_f = None, None, None
-                        for b in ("_B04", "_B03", "_B02"):
-                            if b in target.name:
-                                b4 = target.parent / target.name.replace(b, "_B04")
-                                b3 = target.parent / target.name.replace(b, "_B03")
-                                b2 = target.parent / target.name.replace(b, "_B02")
-                                if b4.exists() and b3.exists() and b2.exists():
-                                    b04_f, b03_f, b02_f = b4, b3, b2
-                                    break
-                        if b04_f and b03_f and b02_f:
-                            with rasterio.open(b04_f) as s4, rasterio.open(b03_f) as s3, rasterio.open(b02_f) as s2:
+                        # Single-band: check if genuine multi-channel bands can be resolved
+                        retriever = get_active_retriever()
+                        rgb_resolved = retriever.resolve_s2_rgb_bands(target)
+                        if rgb_resolved:
+                            with rasterio.open(rgb_resolved[0]) as s4, rasterio.open(rgb_resolved[1]) as s3, rasterio.open(rgb_resolved[2]) as s2:
                                 rgb = np.stack([s4.read(1), s3.read(1), s2.read(1)], axis=-1).astype(np.float32)
                         else:
-                            band = src.read(1).astype(np.float32)
+                            sar_resolved = retriever.resolve_s1_partner_band(target)
+                            if sar_resolved:
+                                with rasterio.open(sar_resolved[0]) as sv:
+                                    band = sv.read(1).astype(np.float32)
+                            else:
+                                band = src.read(1).astype(np.float32)
 
             if rgb is not None:
                 mask = np.isfinite(rgb)

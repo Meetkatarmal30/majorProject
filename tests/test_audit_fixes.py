@@ -651,3 +651,231 @@ def test_thumbnail_modality_isolation_and_missing_placeholder(client, retriever_
     assert resp_missing_s2.status_code == 404
 
 
+# ============================================================
+# 9. COMPREHENSIVE UPLOAD-TO-RETRIEVAL AUDIT FIX TESTS
+# ============================================================
+
+def test_audit_s2_valid_rgb_upload(client):
+    """1. Valid Sentinel-2 3-channel RGB image upload produces 3-channel tensor and MS retrieval."""
+    import rasterio
+    from rasterio.transform import from_origin
+    buf = io.BytesIO()
+    with rasterio.open(
+        buf, "w", driver="GTiff", height=64, width=64, count=3, dtype="uint16",
+        crs="+proj=latlong", transform=from_origin(0, 0, 1, 1),
+    ) as dst:
+        dst.write(np.full((3, 64, 64), 600, dtype=np.uint16))
+    buf.seek(0)
+
+    resp = client.post(
+        "/search?domain=disaster-response&subcategory=wildfire",
+        data={"image": (buf, "valid_s2_rgb.tif"), "modality": "Multispectral"},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "QUERY / Multispectral" in html
+    assert "TOP-" in html
+    assert "Retrieval failed" not in html
+
+
+def test_audit_s2_b04_resolves_genuine_partners(retriever_instance):
+    """2. Valid single-band B04 TIFF resolves genuine B04, B03, B02 partners from dataset without fake channels."""
+    retriever = retriever_instance
+    known_b04 = SAMPLE_SCENES["wildfire_ms"]["path"]
+    assert known_b04.exists()
+
+    tensor = retriever.preprocess_ms(known_b04)
+    assert isinstance(tensor, torch.Tensor)
+    assert tensor.shape == (1, 3, 224, 224)
+    assert tensor.dtype == torch.float32
+    assert not torch.isnan(tensor).any()
+    assert not torch.isinf(tensor).any()
+
+    # Verify that the channels are distinct (genuine RGB from B04, B03, B02, NOT duplicated)
+    b04_ch = tensor[0, 0].cpu().numpy()
+    b03_ch = tensor[0, 1].cpu().numpy()
+    b02_ch = tensor[0, 2].cpu().numpy()
+    assert not np.allclose(b04_ch, b03_ch), "B04 and B03 channels were duplicated!"
+    assert not np.allclose(b03_ch, b02_ch), "B03 and B02 channels were duplicated!"
+
+
+def test_audit_s2_b05_raises_clear_error_no_fake_rgb(retriever_instance, tmp_path):
+    """3a. Single-band B05 (Red Edge) raises clear error and NEVER fabricates RGB channels."""
+    retriever = retriever_instance
+    import rasterio
+
+    # Create an isolated B05 GeoTIFF without RGB partners
+    b05_file = tmp_path / "scene_test_patch_B05.tif"
+    with rasterio.open(b05_file, "w", driver="GTiff", height=32, width=32, count=1, dtype="uint16") as d:
+        d.write(np.full((1, 32, 32), 700, dtype=np.uint16))
+
+    with pytest.raises(ValueError, match="B05 - not an RGB band"):
+        retriever.preprocess_ms(b05_file)
+
+
+def test_audit_s2_isolated_b04_missing_partners_raises_error(retriever_instance, tmp_path):
+    """3b. Single-band B04 without accessible RGB partner bands raises clear validation error."""
+    retriever = retriever_instance
+    import rasterio
+
+    # Isolated B04 whose patch does not exist in local dataset
+    b04_file = tmp_path / "UNKNOWN_NONEXISTENT_PATCH_12345_B04.tif"
+    with rasterio.open(b04_file, "w", driver="GTiff", height=32, width=32, count=1, dtype="uint16") as d:
+        d.write(np.full((1, 32, 32), 500, dtype=np.uint16))
+
+    with pytest.raises(ValueError, match="genuine RGB partner bands.*could not be resolved"):
+        retriever.preprocess_ms(b04_file)
+
+
+def test_audit_sar_valid_2channel_input(retriever_instance, tmp_path):
+    """4a. Valid 2-channel Sentinel-1 input (VV+VH) produces (1, 2, 224, 224) tensor."""
+    retriever = retriever_instance
+    import rasterio
+
+    sar_2ch = tmp_path / "valid_sar_2ch.tif"
+    with rasterio.open(sar_2ch, "w", driver="GTiff", height=32, width=32, count=2, dtype="float32") as d:
+        d.write(np.full((32, 32), -12.0, dtype=np.float32), 1)  # VV
+        d.write(np.full((32, 32), -18.0, dtype=np.float32), 2)  # VH
+
+    tensor = retriever.preprocess_sar(sar_2ch)
+    assert isinstance(tensor, torch.Tensor)
+    assert tensor.shape == (1, 2, 224, 224)
+    assert tensor.dtype == torch.float32
+    assert not torch.isnan(tensor).any()
+    assert not torch.isinf(tensor).any()
+
+
+def test_audit_sar_vv_resolves_genuine_partner(retriever_instance):
+    """4b. Single-band VV file resolves genuine VH partner from dataset without fake duplication."""
+    retriever = retriever_instance
+    known_vv = SAMPLE_SCENES["flood_sar"]["path"]
+    assert known_vv.exists()
+
+    tensor = retriever.preprocess_sar(known_vv)
+    assert isinstance(tensor, torch.Tensor)
+    assert tensor.shape == (1, 2, 224, 224)
+    assert tensor.dtype == torch.float32
+    assert not torch.isnan(tensor).any()
+    assert not torch.isinf(tensor).any()
+
+    # Channels must not be identical copies
+    vv_ch = tensor[0, 0].cpu().numpy()
+    vh_ch = tensor[0, 1].cpu().numpy()
+    assert not np.allclose(vv_ch, vh_ch), "VV and VH channels were silently duplicated!"
+
+
+def test_audit_sar_missing_vh_raises_error_no_duplication(retriever_instance, tmp_path):
+    """5. Single VV file with missing VH raises clear error and NEVER duplicates VV to VH."""
+    retriever = retriever_instance
+    import rasterio
+
+    # Isolated VV without VH and not in dataset
+    vv_file = tmp_path / "UNKNOWN_NONEXISTENT_SAR_PATCH_99999_VV.tif"
+    with rasterio.open(vv_file, "w", driver="GTiff", height=32, width=32, count=1, dtype="float32") as d:
+        d.write(np.full((1, 32, 32), -13.0, dtype=np.float32))
+
+    with pytest.raises(ValueError, match="companion polarization 'VH' could not be resolved"):
+        retriever.preprocess_sar(vv_file)
+
+
+def test_audit_modality_conflict_validation(client):
+    """6. Form validation rejects conflicting modality selection with clear error message."""
+    import rasterio
+
+    # User uploads optical S2A file but explicitly selects SAR
+    buf = io.BytesIO()
+    with rasterio.open(buf, "w", driver="GTiff", height=16, width=16, count=3, dtype="uint8") as d:
+        d.write(np.full((3, 16, 16), 100, dtype=np.uint8))
+    buf.seek(0)
+
+    resp = client.post(
+        "/search?domain=disaster-response&subcategory=flood",
+        data={"image": (buf, "S2A_MSIL2A_20170613T101031_conflict.tif"), "modality": "SAR"},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "Modality conflict" in html
+    assert "appears to be a Sentinel-2 Multispectral scene" in html
+    assert "TOP-" not in html
+
+
+def test_audit_tensor_properties_and_normalization(retriever_instance):
+    """7. Verified model inputs have shape, dtype float32, and finite values."""
+    retriever = retriever_instance
+    s_flood = SAMPLE_SCENES["flood_sar"]["path"]
+    s_wildfire = SAMPLE_SCENES["wildfire_ms"]["path"]
+
+    sar_t = retriever.preprocess_sar(s_flood)
+    assert sar_t.shape == (1, 2, 224, 224)
+    assert sar_t.dtype == torch.float32
+    assert torch.isfinite(sar_t).all()
+
+    ms_t = retriever.preprocess_ms(s_wildfire)
+    assert ms_t.shape == (1, 3, 224, 224)
+    assert ms_t.dtype == torch.float32
+    assert torch.isfinite(ms_t).all()
+
+
+def test_audit_model_inference_and_faiss_search(retriever_instance):
+    """8. Inference produces 512-D L2-normalized embeddings and FAISS returns top-10."""
+    retriever = retriever_instance
+    s_flood = SAMPLE_SCENES["flood_sar"]["path"]
+
+    sar_t = retriever.preprocess_sar(s_flood)
+    emb = retriever.encode_sar(sar_t)
+    assert emb.shape == (1, 512)
+    assert np.isclose(np.linalg.norm(emb), 1.0, atol=1e-5)
+
+    results = retriever.search_gallery(emb, target_gallery="MS", k=10)
+    assert len(results) == 10
+    for r in results:
+        assert r["modality"] == "Multispectral"
+        assert "patch_id" in r
+        assert "score" in r
+        assert float(r["similarity_score"]) <= 1.0001
+
+
+def test_audit_result_metadata_resolution(retriever_instance):
+    """9. Retrieved results resolve metadata (label, split, tone, provenance)."""
+    retriever = retriever_instance
+    s_wildfire = SAMPLE_SCENES["wildfire_ms"]["path"]
+
+    results = retriever.retrieve(s_wildfire, query_modality="MS", k=5)
+    assert len(results) == 5
+    for r in results:
+        assert r["modality"] == "SAR"
+        assert "label" in r
+        assert "split" in r
+        assert "provenance" in r
+        assert r["provenance"] == "cross-modal (MS -> SAR)"
+
+
+def test_audit_missing_thumbnail_fallback_404(client):
+    """10. Missing thumbnail cleanly returns 404 for JavaScript onerror card trigger."""
+    resp = client.get("/patch_image/NONEXISTENT_PATCH_ID_99999?modality=Multispectral")
+    assert resp.status_code == 404
+
+
+def test_audit_clear_validation_error_on_invalid_upload(client):
+    """11. Invalid upload displays clear error in HTML, not unhandled 500 exception."""
+    import rasterio
+
+    # Upload single B05 file via portal
+    buf = io.BytesIO()
+    with rasterio.open(buf, "w", driver="GTiff", height=16, width=16, count=1, dtype="uint16") as d:
+        d.write(np.full((1, 16, 16), 800, dtype=np.uint16))
+    buf.seek(0)
+
+    resp = client.post(
+        "/search?domain=disaster-response&subcategory=wildfire",
+        data={"image": (buf, "standalone_patch_B05.tif"), "modality": "Multispectral"},
+        content_type="multipart/form-data",
+    )
+    assert resp.status_code == 200
+    html = resp.data.decode("utf-8")
+    assert "single spectral band (B05 - not an RGB band)" in html or "B05" in html
+    assert "TOP-" not in html
+
+
