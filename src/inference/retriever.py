@@ -30,11 +30,11 @@ try:
 except ImportError:
     NotGeoreferencedWarning = UserWarning
 
+import torch
+import torch.nn.functional as F
 import faiss
 import numpy as np
 import pandas as pd
-import torch
-import torch.nn.functional as F
 from PIL import Image
 
 # Import existing preprocessing and model
@@ -172,6 +172,8 @@ class CrossModalRetriever:
         self.sar_patch_ids, self.ms_patch_ids = self._load_patch_ids()
 
         # 4. Load metadata dictionary from test_split.csv
+        self.s1_to_patch_id: Dict[str, str] = {}
+        self.s2v1_to_patch_id: Dict[str, str] = {}
         self.metadata_lookup = self._load_metadata()
 
         # 5. Pre-load normalization stats
@@ -181,6 +183,7 @@ class CrossModalRetriever:
         # 6. Lazy patch cache for image thumbnails
         self._local_s1_patches: Optional[Dict[str, Path]] = None
         self._local_s2_patches: Optional[Dict[str, Path]] = None
+        self._patch_cache_initialized: bool = False
 
         # Load authoritative modality config
         self.config = load_modality_config()
@@ -264,12 +267,14 @@ class CrossModalRetriever:
         return sar_ids, ms_ids
 
     def _load_metadata(self) -> Dict[str, Dict[str, Any]]:
-        """Load and index test_split.csv metadata by patch_id."""
+        """Load and index test_split.csv metadata by patch_id, plus reverse maps."""
         if not self.test_split_path.exists():
             raise FileNotFoundError(f"test_split.csv not found at: {self.test_split_path}")
 
         df = pd.read_csv(self.test_split_path)
         lookup: Dict[str, Dict[str, Any]] = {}
+        self.s1_to_patch_id = {}
+        self.s2v1_to_patch_id = {}
 
         for _, row in df.iterrows():
             pid = str(row["patch_id"]).strip()
@@ -279,26 +284,59 @@ class CrossModalRetriever:
                 extracted_labels = [l.strip(" []'\"") for l in raw_labels.split(",") if l.strip(" []'\"")]
 
             primary_label = extracted_labels[0] if extracted_labels else "Unlabeled"
+            s1_name = str(row.get("s1_name", "")).strip()
+            s2v1_name = str(row.get("s2v1_name", "")).strip()
+
+            if s1_name and s1_name.lower() not in ("nan", "none", ""):
+                self.s1_to_patch_id[s1_name] = pid
+            if s2v1_name and s2v1_name.lower() not in ("nan", "none", ""):
+                self.s2v1_to_patch_id[s2v1_name] = pid
 
             lookup[pid] = {
                 "patch_id": pid,
                 "label": primary_label,
                 "labels": extracted_labels,
                 "country": str(row.get("country", "")),
-                "s1_name": str(row.get("s1_name", "")),
-                "s2v1_name": str(row.get("s2v1_name", "")),
+                "s1_name": s1_name,
+                "s2v1_name": s2v1_name,
                 "split": str(row.get("split", "test")),
             }
 
         return lookup
+
+    def get_metadata(self, identifier: Optional[str]) -> Dict[str, Any]:
+        """
+        Deterministically resolve metadata record by patch_id, s1_name, or s2v1_name.
+        Safely handles None, empty string, or missing records.
+        """
+        if not identifier:
+            return {}
+        clean_id = str(identifier).strip()
+        # 1. Primary lookup by patch_id
+        if clean_id in self.metadata_lookup:
+            return self.metadata_lookup[clean_id]
+        # 2. Reverse lookup by s1_name
+        if hasattr(self, "s1_to_patch_id") and clean_id in self.s1_to_patch_id:
+            pid = self.s1_to_patch_id[clean_id]
+            return self.metadata_lookup.get(pid, {})
+        # 3. Reverse lookup by s2v1_name
+        if hasattr(self, "s2v1_to_patch_id") and clean_id in self.s2v1_to_patch_id:
+            pid = self.s2v1_to_patch_id[clean_id]
+            return self.metadata_lookup.get(pid, {})
+        return {}
 
     # --------------------------------------------------------
     # LOCAL THUMBNAIL CACHE & RENDERER
     # --------------------------------------------------------
 
     def _ensure_patch_cache(self) -> None:
-        """Lazily builds lookup table for local raw patch directories."""
-        if self._local_s1_patches is not None and self._local_s2_patches is not None:
+        """
+        Lazily builds lookup table for local raw patch directories.
+        Guaranteed to run at most once to avoid scanning the filesystem on every request.
+        Maps both v2 patch_id and v1 s2v1_name for Sentinel-2,
+        and s1_name and patch_id for Sentinel-1.
+        """
+        if getattr(self, "_patch_cache_initialized", False):
             return
 
         self._local_s1_patches = {}
@@ -312,57 +350,204 @@ class CrossModalRetriever:
                 if scene_dir.is_dir():
                     for patch_dir in scene_dir.iterdir():
                         if patch_dir.is_dir():
-                            self._local_s1_patches[patch_dir.name] = patch_dir
+                            name = patch_dir.name
+                            self._local_s1_patches[name] = patch_dir
+                            if hasattr(self, "s1_to_patch_id") and name in self.s1_to_patch_id:
+                                pid = self.s1_to_patch_id[name]
+                                self._local_s1_patches[pid] = patch_dir
 
         if s2_dir.exists():
             for scene_dir in s2_dir.iterdir():
                 if scene_dir.is_dir():
                     for patch_dir in scene_dir.iterdir():
                         if patch_dir.is_dir():
-                            self._local_s2_patches[patch_dir.name] = patch_dir
+                            name = patch_dir.name
+                            self._local_s2_patches[name] = patch_dir
+                            if name in self.metadata_lookup:
+                                s2v1 = self.metadata_lookup[name].get("s2v1_name")
+                                if s2v1:
+                                    self._local_s2_patches[s2v1] = patch_dir
+                            elif hasattr(self, "s2v1_to_patch_id") and name in self.s2v1_to_patch_id:
+                                pid = self.s2v1_to_patch_id[name]
+                                self._local_s2_patches[pid] = patch_dir
+
+        self._patch_cache_initialized = True
+        logger.info(
+            f"Patch cache built: {len(self._local_s1_patches)} S1 entries, "
+            f"{len(self._local_s2_patches)} S2 entries."
+        )
+
+    def _render_s2_thumbnail(self, patch_id: str, meta: Dict[str, Any]) -> Optional[Image.Image]:
+        """Render RGB thumbnail for Sentinel-2 using B04/B03/B02 with NaN/Inf/nodata/constant safety."""
+        folder = None
+        for key in (patch_id, meta.get("s2v1_name"), meta.get("patch_id")):
+            if key and key in self._local_s2_patches:
+                folder = self._local_s2_patches[key]
+                break
+
+        if folder is None or not folder.is_dir():
+            return None
+
+        try:
+            b04_files = sorted(folder.glob("*_B04.tif"))
+            b03_files = sorted(folder.glob("*_B03.tif"))
+            b02_files = sorted(folder.glob("*_B02.tif"))
+            if not (b04_files and b03_files and b02_files):
+                return None
+
+            import rasterio
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                with rasterio.open(b04_files[0]) as s4, \
+                     rasterio.open(b03_files[0]) as s3, \
+                     rasterio.open(b02_files[0]) as s2:
+                    nodata4 = s4.nodata
+                    nodata3 = s3.nodata
+                    nodata2 = s2.nodata
+                    b04 = s4.read(1).astype(np.float32)
+                    b03 = s3.read(1).astype(np.float32)
+                    b02 = s2.read(1).astype(np.float32)
+
+            if b04.shape != b03.shape or b04.shape != b02.shape or b04.ndim != 2:
+                return None
+
+            # Correct RGB ordering: B04 (Red), B03 (Green), B02 (Blue)
+            rgb = np.stack([b04, b03, b02], axis=-1)  # (H, W, 3)
+            mask = np.isfinite(rgb)
+            if nodata4 is not None:
+                mask[..., 0] &= (rgb[..., 0] != nodata4)
+            if nodata3 is not None:
+                mask[..., 1] &= (rgb[..., 1] != nodata3)
+            if nodata2 is not None:
+                mask[..., 2] &= (rgb[..., 2] != nodata2)
+
+            valid_mask = mask.all(axis=-1)
+            if not np.any(valid_mask):
+                return Image.fromarray(np.zeros((rgb.shape[0], rgb.shape[1], 3), dtype=np.uint8))
+
+            valid_pixels = rgb[valid_mask]
+            p2, p98 = np.percentile(valid_pixels, (2, 98))
+            denom = p98 - p2
+            if denom <= 1e-5:
+                scaled = np.full(rgb.shape, 128, dtype=np.uint8)
+                scaled = np.where(valid_mask[..., None], scaled, 0).astype(np.uint8)
+            else:
+                clean_rgb = np.clip(rgb, p2, p98)
+                scaled_calc = np.clip((clean_rgb - p2) / denom * 255.0, 0, 255).astype(np.uint8)
+                scaled = np.where(valid_mask[..., None], scaled_calc, 0).astype(np.uint8)
+
+            return Image.fromarray(scaled)
+        except Exception as e:
+            logger.warning(f"Error rendering S2 thumbnail for {patch_id}: {e}")
+            return None
+
+    def _render_s1_thumbnail(self, patch_id: str, meta: Dict[str, Any]) -> Optional[Image.Image]:
+        """Render grayscale-to-RGB thumbnail for Sentinel-1 with NaN/Inf/nodata/constant safety and percentile stretch."""
+        folder = None
+        for key in (meta.get("s1_name"), patch_id, meta.get("patch_id")):
+            if key and key in self._local_s1_patches:
+                folder = self._local_s1_patches[key]
+                break
+
+        if folder is None or not folder.is_dir():
+            return None
+
+        try:
+            vv_files = sorted(folder.glob("*_VV.tif"))
+            if not vv_files:
+                return None
+
+            import rasterio
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                with rasterio.open(vv_files[0]) as src:
+                    nodata = src.nodata
+                    vv = src.read(1).astype(np.float32)
+
+            if vv.ndim != 2:
+                return None
+
+            mask = np.isfinite(vv)
+            if nodata is not None:
+                mask &= (vv != nodata)
+
+            if not np.any(mask):
+                return Image.fromarray(np.zeros((vv.shape[0], vv.shape[1], 3), dtype=np.uint8))
+
+            valid_vv = vv[mask]
+            p2, p98 = np.percentile(valid_vv, (2, 98))
+            denom = p98 - p2
+            if denom <= 1e-5:
+                scaled_vv = np.where(mask, 128, 0).astype(np.uint8)
+            else:
+                clean_vv = np.clip(vv, p2, p98)
+                scaled_calc = np.clip((clean_vv - p2) / denom * 255.0, 0, 255).astype(np.uint8)
+                scaled_vv = np.where(mask, scaled_calc, 0).astype(np.uint8)
+
+            return Image.fromarray(scaled_vv).convert("RGB")
+        except Exception as e:
+            logger.warning(f"Error rendering S1 thumbnail for {patch_id}: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error rendering S1 thumbnail for {patch_id}: {e}")
+            return None
 
     def render_patch_thumbnail(self, patch_id: str, modality: Optional[str] = None) -> Optional[Image.Image]:
         """
         Renders a PIL RGB thumbnail for a given patch_id if available locally.
-        Returns None gracefully if the raw image is not in the local subset.
+        Strictly respects the requested modality:
+        - If requested modality is MS/Multispectral/S2: only renders Sentinel-2.
+        - If requested modality is SAR/S1: only renders Sentinel-1.
+        - If requested modality is Hybrid: renders dual composite if both available, else None.
+        - If modality is None: permits fallback (tries S2 first, then S1).
+        - If modality is unsupported: returns None gracefully.
+        - Never silently substitutes one modality for another.
         """
         self._ensure_patch_cache()
-        meta = self.metadata_lookup.get(patch_id, {})
+        meta = self.get_metadata(patch_id)
 
-        # If modality is Multispectral or unspecified, try S2 first
-        if modality is None or modality.strip().upper() in ("MS", "MULTISPECTRAL", "S2"):
-            if patch_id in self._local_s2_patches:
-                folder = self._local_s2_patches[patch_id]
-                try:
-                    b04_files = list(folder.glob("*_B04.tif"))
-                    b03_files = list(folder.glob("*_B03.tif"))
-                    b02_files = list(folder.glob("*_B02.tif"))
-                    if b04_files and b03_files and b02_files:
-                        import rasterio
-                        b04 = rasterio.open(b04_files[0]).read(1).astype(np.float32)
-                        b03 = rasterio.open(b03_files[0]).read(1).astype(np.float32)
-                        b02 = rasterio.open(b02_files[0]).read(1).astype(np.float32)
-                        rgb = np.stack([b04, b03, b02], axis=-1)
-                        p2, p98 = np.percentile(rgb, (2, 98))
-                        rgb_scaled = np.clip((rgb - p2) / (p98 - p2 + 1e-5) * 255.0, 0, 255).astype(np.uint8)
-                        return Image.fromarray(rgb_scaled)
-                except Exception as e:
-                    logger.warning(f"Error rendering S2 thumbnail for {patch_id}: {e}")
+        norm_mod = modality.strip().upper() if modality else None
 
-        # Check SAR (S1)
-        s1_name = meta.get("s1_name", patch_id)
-        candidate_s1 = self._local_s1_patches.get(s1_name, self._local_s1_patches.get(patch_id))
-        if candidate_s1 is not None:
-            try:
-                vv_files = list(candidate_s1.glob("*_VV.tif"))
-                if vv_files:
-                    import rasterio
-                    vv = rasterio.open(vv_files[0]).read(1).astype(np.float32)
-                    vv_clipped = np.clip(vv, -25.0, 0.0)
-                    vv_scaled = ((vv_clipped - (-25.0)) / 25.0 * 255.0).astype(np.uint8)
-                    return Image.fromarray(vv_scaled).convert("RGB")
-            except Exception as e:
-                logger.warning(f"Error rendering S1 thumbnail for {patch_id}: {e}")
+        # Check for unsupported modality
+        if norm_mod is not None and norm_mod not in (
+            "MS", "MULTISPECTRAL", "S2", "SENTINEL-2",
+            "SAR", "S1", "SENTINEL-1",
+            "HYBRID", "DUAL",
+        ):
+            logger.warning(f"Unsupported modality requested for thumbnail: {modality}")
+            return None
+
+        # 1. Multispectral (Sentinel-2)
+        if norm_mod in ("MS", "MULTISPECTRAL", "S2", "SENTINEL-2") or norm_mod is None:
+            s2_img = self._render_s2_thumbnail(patch_id, meta)
+            if s2_img is not None:
+                return s2_img
+            if norm_mod is not None:
+                # Strictly DO NOT fall back to SAR if MS was explicitly requested
+                return None
+
+        # 2. SAR (Sentinel-1)
+        if norm_mod in ("SAR", "S1", "SENTINEL-1") or norm_mod is None:
+            s1_img = self._render_s1_thumbnail(patch_id, meta)
+            if s1_img is not None:
+                return s1_img
+            if norm_mod is not None:
+                # Strictly DO NOT fall back to MS if SAR was explicitly requested
+                return None
+
+        # 3. Hybrid
+        if norm_mod in ("HYBRID", "DUAL"):
+            s2_img = self._render_s2_thumbnail(patch_id, meta)
+            s1_img = self._render_s1_thumbnail(patch_id, meta)
+            if s2_img is not None and s1_img is not None:
+                w1, h1 = s2_img.size
+                w2, h2 = s1_img.size
+                h = max(h1, h2)
+                composite = Image.new("RGB", (w1 + w2, h), (0, 0, 0))
+                composite.paste(s2_img, (0, (h - h1) // 2))
+                composite.paste(s1_img, (w1, (h - h2) // 2))
+                return composite
+            return None
 
         return None
 
@@ -487,13 +672,31 @@ class CrossModalRetriever:
 
         # Single file
         if input_path.is_file():
+            name = input_path.name
             parent = input_path.parent
-            b04 = list(parent.glob("*_B04.tif"))
-            b03 = list(parent.glob("*_B03.tif"))
-            b02 = list(parent.glob("*_B02.tif"))
-            if b04 and b03 and b02 and any(b.name == input_path.name for b in (b04[0], b03[0], b02[0])):
-                tensor = preprocess_s2_patch(parent, target_size=(224, 224))
-                return tensor.unsqueeze(0).to(self.device)
+            b04_file, b03_file, b02_file = None, None, None
+            for band in ("_B04", "_B03", "_B02"):
+                if band in name:
+                    b4 = parent / name.replace(band, "_B04")
+                    b3 = parent / name.replace(band, "_B03")
+                    b2 = parent / name.replace(band, "_B02")
+                    if b4.exists() and b3.exists() and b2.exists():
+                        b04_file, b03_file, b02_file = b4, b3, b2
+                        break
+
+            if b04_file and b03_file and b02_file:
+                import rasterio
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                    with rasterio.open(b04_file) as s4, rasterio.open(b03_file) as s3, rasterio.open(b02_file) as s2:
+                        b4_arr = s4.read(1).astype(np.float32)
+                        b3_arr = s3.read(1).astype(np.float32)
+                        b2_arr = s2.read(1).astype(np.float32)
+                rgb = np.stack([b4_arr, b3_arr, b2_arr], axis=0)
+                resized = resize_s2_image(rgb, target_size=(224, 224))
+                normalized = normalize_s2_image(resized, mean=self.s2_mean, std=self.s2_std)
+                tensor = torch.from_numpy(normalized).type(torch.float32).unsqueeze(0).to(self.device)
+                return tensor
 
             try:
                 import rasterio
@@ -593,7 +796,14 @@ class CrossModalRetriever:
         else:
             raise ValueError(f"Unsupported target gallery: {target_gallery}. Must be 'MS' or 'SAR'.")
 
-        scores, indices = index.search(query_embedding, k)
+        if not isinstance(k, int) or k <= 0:
+            raise ValueError(f"k must be a positive integer, got {k}")
+
+        actual_k = min(k, index.ntotal)
+        if actual_k == 0:
+            return []
+
+        scores, indices = index.search(query_embedding, actual_k)
 
         results: List[Dict[str, Any]] = []
         for rank, (score, idx) in enumerate(zip(scores[0], indices[0]), start=1):
@@ -601,7 +811,7 @@ class CrossModalRetriever:
                 continue
 
             patch_id = patch_ids[idx]
-            meta = self.metadata_lookup.get(patch_id, {})
+            meta = self.get_metadata(patch_id)
             sim_score = float(score)
 
             result_entry: Dict[str, Any] = {
@@ -731,6 +941,9 @@ class CrossModalRetriever:
                - MS query -> SAR gallery
             4. Return top-k structured results.
         """
+        if not isinstance(k, int) or k <= 0:
+            raise ValueError(f"k must be a positive integer, got {k}")
+
         # Check subcategory configuration if provided
         configured_modality = None
         if subcategory:

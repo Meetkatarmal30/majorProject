@@ -74,25 +74,48 @@ RETRIEVER: Optional[CrossModalRetriever] = None
 SAMPLE_SCENES: Dict[str, Dict[str, Any]] = {
     "flood_sar": {
         "key": "flood_sar",
-        "name": "Sentinel-1 SAR Flood Scene",
+        "name": "Sentinel-1 SAR Flood / Water Scene",
+        "badge": "SAR",
         "modality": "SAR",
         "domain": "disaster-response",
         "subcategory": "flood",
         "path": PROJECT_ROOT / "teammate_inputs" / "BigEarthNet-S1-Required" / "S1B_IW_GRDH_1SDV_20170612T165809" / "S1B_IW_GRDH_1SDV_20170612T165809_33UUP_39_66" / "S1B_IW_GRDH_1SDV_20170612T165809_33UUP_39_66_VV.tif",
-        "desc": "Dual-pol VV radar backscatter (water extent & inundation)",
+        "desc": "Dual-pol VV radar backscatter (water extent & inundation baseline)",
     },
     "wildfire_ms": {
         "key": "wildfire_ms",
-        "name": "Sentinel-2 MS Wildfire Scene",
+        "name": "Sentinel-2 MS Vegetation Reference",
+        "badge": "MS",
         "modality": "MS",
         "domain": "disaster-response",
         "subcategory": "wildfire",
         "path": PROJECT_ROOT / "teammate_inputs" / "BigEarthNet-S2-Required" / "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP" / "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66" / "S2A_MSIL2A_20170613T101031_N9999_R022_T33UUP_39_66_B04.tif",
-        "desc": "Optical RGB reflectance (burn scar & canopy disturbance)",
+        "desc": "Optical RGB vegetation reflectance (spectral baseline; local archive contains no acute burn perimeters)",
+    },
+    "deforestation_hybrid": {
+        "key": "deforestation_hybrid",
+        "name": "Forest Disturbance Scene (Hybrid)",
+        "badge": "HYBRID",
+        "modality": "Hybrid",
+        "domain": "environmental-monitoring",
+        "subcategory": "deforestation",
+        "path": PROJECT_ROOT / "teammate_inputs" / "BigEarthNet-S2-Required" / "S2A_MSIL2A_20170905T095031_N9999_R079_T35VNL" / "S2A_MSIL2A_20170905T095031_N9999_R079_T35VNL_29_25" / "S2A_MSIL2A_20170905T095031_N9999_R079_T35VNL_29_25_B04.tif",
+        "desc": "Transitional woodland & coniferous canopy disturbance (optical reflectance + radar structure)",
+    },
+    "drought_ms": {
+        "key": "drought_ms",
+        "name": "Sentinel-2 MS Drought Vegetation Stress Scene",
+        "badge": "MS",
+        "modality": "MS",
+        "domain": "environmental-monitoring",
+        "subcategory": "drought",
+        "path": PROJECT_ROOT / "teammate_inputs" / "BigEarthNet-S2-Required" / "S2A_MSIL2A_20170704T112111_N9999_R037_T29SND" / "S2A_MSIL2A_20170704T112111_N9999_R037_T29SND_28_38" / "S2A_MSIL2A_20170704T112111_N9999_R037_T29SND_28_38_B04.tif",
+        "desc": "Sentinel-2 L2A optical reflectance during the July 2017 Iberian drought in Alentejo, Portugal (canopy moisture & chlorophyll stress; mean NDVI ~0.41)",
     },
     "crop_hybrid": {
         "key": "crop_hybrid",
         "name": "Agricultural Scene (Hybrid)",
+        "badge": "HYBRID",
         "modality": "Hybrid",
         "domain": "urban-agricultural",
         "subcategory": "crop-mapping",
@@ -203,40 +226,80 @@ def search():
     results = None
     latency_info = None
 
-    if request.method == "POST":
+    if request.method == "POST" or request.args.get("sample_key"):
         # Prune old uploads safely
         cleanup_old_uploads(UPLOAD_DIR)
 
-        sample_key = request.form.get("sample_key")
-        uploaded_file = request.files.get("image")
+        sample_key = request.form.get("sample_key") or request.args.get("sample_key")
+        uploaded_file = request.files.get("image") if request.method == "POST" else None
         saved_path: Optional[Path] = None
+        sample_modality: Optional[str] = None
 
-        if sample_key and sample_key in SAMPLE_SCENES:
-            sample_info = SAMPLE_SCENES[sample_key]
-            sample_src = sample_info["path"]
-            if sample_src.exists():
-                timestamp = int(time.time() * 1000)
-                saved_filename = f"{timestamp}_{sample_src.name}"
-                saved_path = UPLOAD_DIR / saved_filename
-                shutil.copy2(sample_src, saved_path)
-
-                # Copy partner bands if available for genuine multi-channel tensor processing
-                if "_VV" in sample_src.name:
-                    vh_src = sample_src.parent / sample_src.name.replace("_VV", "_VH")
-                    if vh_src.exists():
-                        shutil.copy2(vh_src, UPLOAD_DIR / f"{timestamp}_{vh_src.name}")
-                elif "_B04" in sample_src.name:
-                    b03_src = sample_src.parent / sample_src.name.replace("_B04", "_B03")
-                    b02_src = sample_src.parent / sample_src.name.replace("_B04", "_B02")
-                    if b03_src.exists():
-                        shutil.copy2(b03_src, UPLOAD_DIR / f"{timestamp}_{b03_src.name}")
-                    if b02_src.exists():
-                        shutil.copy2(b02_src, UPLOAD_DIR / f"{timestamp}_{b02_src.name}")
-
-                uploaded_filename = f"{sample_info['name']}"
-                query_preview_url = url_for("query_image", filename=saved_filename)
+        if sample_key:
+            if sample_key not in SAMPLE_SCENES:
+                error = f"Unrecognized sample scene key: '{sample_key}'."
             else:
-                error = f"Sample asset missing at path: {sample_src}"
+                sample_info = SAMPLE_SCENES[sample_key]
+                # Validate sample compatibility with chosen domain and subcategory
+                sample_domain = sample_info.get("domain")
+                sample_subcat = sample_info.get("subcategory")
+                sample_mod = sample_info.get("modality", "")
+
+                subcat_mod = subcategory.get("modality", "")
+                norm_sample_mod = "MS" if sample_mod.upper() in ("MS", "MULTISPECTRAL") else sample_mod.upper()
+                norm_subcat_mod = "MS" if subcat_mod.upper() in ("MS", "MULTISPECTRAL") else subcat_mod.upper()
+
+                if (
+                    norm_sample_mod != norm_subcat_mod
+                    or sample_domain != domain_slug
+                ):
+                    expected_domain = PORTAL_CONFIG.get("domains", {}).get(sample_domain, {}).get("name", sample_domain)
+                    expected_subcat = (
+                        PORTAL_CONFIG.get("domains", {})
+                        .get(sample_domain, {})
+                        .get("subcategories", {})
+                        .get(sample_subcat, {})
+                        .get("name", sample_subcat)
+                    )
+                    error = (
+                        f"Sample '{sample_info['name']}' ({sample_info['modality']}) is designed for "
+                        f"'{expected_domain} / {expected_subcat}' and is incompatible with the selected use case "
+                        f"'{domain.get('name', domain_slug)} / {subcategory.get('name', subcategory_slug)}' ({subcategory.get('modality', 'configured modality')}). "
+                        f"Please select the recommended sample scene for this subcategory or upload an image."
+                    )
+                else:
+                    sample_src = sample_info["path"]
+                    if sample_src.exists():
+                        timestamp = int(time.time() * 1000)
+                        saved_filename = f"{timestamp}_{sample_src.name}"
+                        saved_path = UPLOAD_DIR / saved_filename
+                        shutil.copy2(sample_src, saved_path)
+
+                        # Copy companion bands if available for genuine multi-channel tensor processing
+                        if "_VV" in sample_src.name:
+                            vh_src = sample_src.parent / sample_src.name.replace("_VV", "_VH")
+                            if vh_src.exists():
+                                shutil.copy2(vh_src, UPLOAD_DIR / f"{timestamp}_{vh_src.name}")
+                        elif "_VH" in sample_src.name:
+                            vv_src = sample_src.parent / sample_src.name.replace("_VH", "_VV")
+                            if vv_src.exists():
+                                shutil.copy2(vv_src, UPLOAD_DIR / f"{timestamp}_{vv_src.name}")
+                        elif any(b in sample_src.name for b in ("_B04", "_B03", "_B02")):
+                            for b in ("_B04", "_B03", "_B02"):
+                                p_name = sample_src.name
+                                for src_b in ("_B04", "_B03", "_B02"):
+                                    if src_b in p_name:
+                                        p_name = p_name.replace(src_b, b)
+                                        break
+                                p_src = sample_src.parent / p_name
+                                if p_src.exists() and p_src != sample_src:
+                                    shutil.copy2(p_src, UPLOAD_DIR / f"{timestamp}_{p_name}")
+
+                        uploaded_filename = f"{sample_info['name']}"
+                        query_preview_url = url_for("query_image", filename=saved_filename)
+                        sample_modality = sample_info["modality"]
+                    else:
+                        error = f"Sample asset missing at path: {sample_src}"
         elif uploaded_file and uploaded_file.filename:
             if not allowed_file(uploaded_file.filename):
                 error = f"Unsupported file format. Supported extensions are: {', '.join(sorted(ALLOWED_EXTENSIONS))}."
@@ -253,13 +316,19 @@ def search():
 
         if saved_path and not error:
             try:
-                # Resolve recommended query modality
-                configured_mod = subcategory.get("modality", "SAR")
-                if configured_mod.upper() == "SAR":
+                # Resolve query modality:
+                # If sample selected, strictly respect declared modality;
+                # for uploaded images, preserve subcategory's configured modality.
+                if sample_modality:
+                    mod_to_use = sample_modality
+                else:
+                    mod_to_use = subcategory.get("modality", "SAR")
+
+                if mod_to_use.upper() == "SAR":
                     query_mod = "SAR"
-                elif configured_mod.upper() in ("MS", "MULTISPECTRAL"):
+                elif mod_to_use.upper() in ("MS", "MULTISPECTRAL"):
                     query_mod = "MS"
-                elif configured_mod.upper() == "HYBRID":
+                elif mod_to_use.upper() == "HYBRID":
                     query_mod = "Hybrid"
                 else:
                     query_mod = "SAR"
@@ -327,19 +396,78 @@ def query_image(filename: str):
 
     if suffix in (".tif", ".tiff"):
         try:
+            import warnings
             import rasterio
-            with rasterio.open(target) as src:
-                if src.count >= 3:
-                    rgb = src.read([1, 2, 3]).astype(np.float32)
-                    p2, p98 = np.percentile(rgb, (2, 98))
-                    scaled = np.clip((rgb - p2) / (p98 - p2 + 1e-5) * 255.0, 0, 255).astype(np.uint8)
-                    img = Image.fromarray(scaled.transpose(1, 2, 0))
+            from rasterio.errors import NotGeoreferencedWarning
+
+            rgb: Optional[np.ndarray] = None
+            band: Optional[np.ndarray] = None
+            nodata = None
+
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", NotGeoreferencedWarning)
+                with rasterio.open(target) as src:
+                    count = src.count
+                    nodata = src.nodata
+                    if count >= 3:
+                        rgb = src.read([1, 2, 3]).astype(np.float32).transpose(1, 2, 0)
+                    else:
+                        # Check if companion bands exist in UPLOAD_DIR for S2
+                        b04_f, b03_f, b02_f = None, None, None
+                        for b in ("_B04", "_B03", "_B02"):
+                            if b in target.name:
+                                b4 = target.parent / target.name.replace(b, "_B04")
+                                b3 = target.parent / target.name.replace(b, "_B03")
+                                b2 = target.parent / target.name.replace(b, "_B02")
+                                if b4.exists() and b3.exists() and b2.exists():
+                                    b04_f, b03_f, b02_f = b4, b3, b2
+                                    break
+                        if b04_f and b03_f and b02_f:
+                            with rasterio.open(b04_f) as s4, rasterio.open(b03_f) as s3, rasterio.open(b02_f) as s2:
+                                rgb = np.stack([s4.read(1), s3.read(1), s2.read(1)], axis=-1).astype(np.float32)
+                        else:
+                            band = src.read(1).astype(np.float32)
+
+            if rgb is not None:
+                mask = np.isfinite(rgb)
+                if nodata is not None:
+                    mask &= (rgb != nodata)
+                if not np.any(mask):
+                    img = Image.fromarray(np.zeros((rgb.shape[0], rgb.shape[1], 3), dtype=np.uint8))
                 else:
-                    band = src.read(1).astype(np.float32)
-                    clipped = np.clip(band, -25.0, 0.0) if np.min(band) < -5.0 else band
-                    p2, p98 = np.percentile(clipped, (2, 98))
-                    scaled = np.clip((clipped - p2) / (p98 - p2 + 1e-5) * 255.0, 0, 255).astype(np.uint8)
+                    valid_pixels = rgb[mask]
+                    p2, p98 = np.percentile(valid_pixels, (2, 98))
+                    denom = p98 - p2
+                    if denom <= 1e-5:
+                        scaled = np.where(mask, 128, 0).astype(np.uint8)
+                    else:
+                        clean_rgb = np.where(mask, rgb, p2)
+                        scaled = np.clip((clean_rgb - p2) / denom * 255.0, 0, 255).astype(np.uint8)
+                    img = Image.fromarray(scaled)
+            elif band is not None:
+                mask = np.isfinite(band)
+                if nodata is not None:
+                    mask &= (band != nodata)
+                if not np.any(mask):
+                    img = Image.fromarray(np.zeros((band.shape[0], band.shape[1], 3), dtype=np.uint8))
+                else:
+                    valid = band[mask]
+                    if np.any(valid < -5.0) or "_VV" in target.name or "_VH" in target.name:
+                        clean_band = np.where(mask, band, -25.0)
+                        clipped = np.clip(clean_band, -25.0, 0.0)
+                        p_min, p_max = -25.0, 0.0
+                    else:
+                        clean_band = np.where(mask, band, 0.0)
+                        p_min, p_max = np.percentile(valid, (2, 98))
+                        clipped = clean_band
+                    denom = p_max - p_min
+                    if denom <= 1e-5:
+                        scaled = np.where(mask, 128, 0).astype(np.uint8)
+                    else:
+                        scaled = np.clip((clipped - p_min) / denom * 255.0, 0, 255).astype(np.uint8)
                     img = Image.fromarray(scaled).convert("RGB")
+            else:
+                abort(404)
 
             buf = io.BytesIO()
             img.save(buf, format="JPEG", quality=85)

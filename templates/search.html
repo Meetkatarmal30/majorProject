@@ -55,17 +55,32 @@
           </div>
 
           <div class="sample-benchmark-row">
-            <span class="sample-lead">Or test with pre-verified benchmark scene:</span>
-            <div class="sample-buttons">
-              {% if sample_scenes %}
-                {% for key, s in sample_scenes.items() %}
-                <button type="button" class="sample-btn" onclick="submitSample('{{ key }}')" title="Run retrieval with {{ s.name }}">
-                  <span class="sample-pill-badge">{{ s.badge }}</span>
+            {% set active_samples = [] %}
+            {% if sample_scenes %}
+              {% for key, s in sample_scenes.items() %}
+                {% if s.domain == domain_slug and s.subcategory == subcategory_slug %}
+                  {% set _ = active_samples.append((key, s)) %}
+                {% endif %}
+              {% endfor %}
+            {% endif %}
+
+            {% if active_samples %}
+              <span class="sample-lead">Pre-verified benchmark scene for {{ subcategory.name }}:</span>
+              <div class="sample-buttons">
+                {% for key, s in active_samples %}
+                <button type="button" class="sample-btn recommended-sample" onclick="submitSample('{{ key }}')" title="Run retrieval with {{ s.name }}">
+                  <span class="sample-pill-badge {{ s.badge|lower }}">{{ s.badge }}</span>
                   <span class="sample-btn-title">{{ s.name }}</span>
+                  <span class="recommended-badge">★ Recommended</span>
                 </button>
                 {% endfor %}
-              {% endif %}
-            </div>
+              </div>
+            {% else %}
+              <div class="sample-unavailable-banner">
+                <span class="sample-unavailable-badge">ℹ️ Benchmark Scene Notice</span>
+                <p>No compatible benchmark sample is configured for <strong>{{ subcategory.name }}</strong> in the local BigEarthNet land-cover archive. The custom image upload option above remains fully active.</p>
+              </div>
+            {% endif %}
           </div>
         </div>
 
@@ -123,10 +138,14 @@
           <div class="query-card">
             <div class="scene scene-query">
               {% if query_preview_url %}
-              <img src="{{ query_preview_url }}" alt="Query Satellite Scene" class="scene-img" onerror="this.style.display='none'">
+              <img src="{{ query_preview_url }}" alt="Query Satellite Scene" class="scene-img" onerror="this.style.display='none'; if(this.nextElementSibling){ this.nextElementSibling.style.display='flex'; }">
               {% endif %}
+              <div class="scene-placeholder" style="{% if query_preview_url %}display: none;{% else %}display: flex;{% endif %}">
+                <span class="placeholder-icon">🛰️</span>
+                <span class="placeholder-title">Query Scene</span>
+                <span class="placeholder-sub">{{ query_modality_used or subcategory.modality }}</span>
+              </div>
               <span class="scene-badge">QUERY / {{ query_modality_used or subcategory.modality }}</span>
-              <i></i>
             </div>
             <div class="query-details">
               <strong class="query-filename" title="{{ uploaded_filename or 'Input Scene' }}">{{ uploaded_filename or 'Input Scene' }}</strong>
@@ -145,10 +164,14 @@
         <div class="results-grid">
           {% for result in results %}
           <article class="result-card">
-            <div class="scene scene-{{ result.tone }}">
-              <img src="{{ url_for('patch_image', patch_id=result.patch_id, modality=result.modality) }}" alt="{{ result.patch_id }}" class="scene-img" loading="lazy" onerror="this.style.display='none'">
+            <div class="scene">
+              <img src="{{ url_for('patch_image', patch_id=result.patch_id, modality=result.modality) }}" alt="{{ result.patch_id }}" class="scene-img" loading="lazy" onerror="this.style.display='none'; if(this.nextElementSibling){ this.nextElementSibling.style.display='flex'; }">
+              <div class="scene-placeholder" style="display: none;">
+                <span class="placeholder-icon">📡</span>
+                <span class="placeholder-title">Preview Unavailable</span>
+                <span class="placeholder-sub">{{ result.modality }} Local Subset</span>
+              </div>
               <span class="scene-badge">{{ result.modality[:3]|upper }} / #{{ '%02d'|format(result.rank) }}</span>
-              <i></i>
             </div>
             <div class="result-meta">
               <span class="rank">#{{ '%02d'|format(result.rank) }}</span>
